@@ -141,6 +141,44 @@ start.
 Any CW note between ~300 and ~2600 Hz works — `morse-logger tune --auto` measures the
 audio and moves the decoder; you do not have to hit a magic pitch.
 
+## Surveying a band (RTL-SDR)
+
+`scan` finds out what is in a CW segment without disturbing anything:
+
+```
+$ morse-logger scan --band 40m
+40m CW (7.000-7.125 MHz)
+  surveying 40m CW (7.000-7.125 MHz) with rtl_power (3 s)
+    probing 7.0330 MHz  (peak -62 dB, +33 dB above neighbours) - 8 s
+    probing 7.0510 MHz  (peak -78 dB, +17 dB above neighbours) - 8 s
+
+   #   frequency      level    tone   keying
+  --------------------------------------------------------
+   1       7.0330    -9 dBFS    700 Hz   20.3 WPM (conf 0.94)
+   2       7.0510   -26 dBFS    880 Hz   carrier, no keying
+
+  survey only - nothing was retuned. To work one of these:
+    morse-logger sdr start --freq 7.0330 --mode usb
+    morse-logger tune --tone 700
+    morse-logger wpm --set 20
+```
+
+Two stages: `rtl_power` sweeps the segment in a few seconds (that is what makes
+it fast - stepping `rtl_fm` across 125 kHz would take minutes), then `rtl_fm`
+dwells on the few best candidates. A candidate is a *cluster* of bins that is
+narrow (a wide rise is a data mode or an overloaded front end) and stands clear
+of the noise around it. The dwell is what separates CW from everything else: a
+carrier with no keying is reported as exactly that.
+
+Rejected outright: plateau edges (a cliff on one side only), carriers inside the
+noise floor, and anything wider than ~5 bins. **Nothing is retuned** - if a
+logger is running it keeps logging. Presets are `80m 40m 30m 20m 17m 15m 10m`,
+or use `--start 7030 --stop 7060` in kHz. `--top` sets how many candidates are
+probed and `--dwell` how long each gets.
+
+`--lock`, which would tune and set the speed on the best candidate, is not
+implemented yet.
+
 ## Real hardware later
 
     morse-logger config --set input_device=<pulse-source-name>

@@ -679,6 +679,34 @@ def daemon_pids(home):
         out.append(int(name))
     return out
 
+
+def cmd_scan(args):
+    from . import scan as scanner
+    if args.list_bands:
+        print("  CW segments that ship with the tool:")
+        for name, (lo, hi) in sorted(scanner.BANDS.items()):
+            print(f"    {name:<4} {lo/1e6:7.3f} - {hi/1e6:7.3f} MHz")
+        print("\n  any other range: --start 7030 --stop 7060   (kHz)")
+        return 0
+    try:
+        start, stop, label = scanner.band_range(args.band, args.start, args.stop)
+    except ValueError as exc:
+        print(f"  {exc}")
+        return 2
+    print(f"  {label}")
+    try:
+        results = scanner.scan(
+            band=args.band, start_khz=args.start, stop_khz=args.stop,
+            top=args.top, dwell=args.dwell, seconds=args.survey_seconds,
+            device=args.device, ppm=args.ppm, gain=args.gain, hf=args.hf,
+            bias_tee=args.bias_tee, mode=args.mode,
+            verbose=lambda msg: print(f"  {msg}"))
+    except (RuntimeError, ValueError) as exc:
+        print(f"  {exc}")
+        return 1
+    scanner.report(results)
+    return 0
+
 def cmd_start(args):
     holder = logger.lock_holder()
     if holder:
@@ -1313,6 +1341,23 @@ def build_parser():
     t.add_argument("--hide-filtered", action="store_true",
                    help="skip lines the daemon filtered out of the text log")
     t.set_defaults(func=cmd_tail)
+
+    sc = sub.add_parser("scan", help="survey a band with an RTL-SDR (reports only)")
+    sc.add_argument("--band", help="preset: 80m 40m 30m 20m 17m 15m 10m")
+    sc.add_argument("--start", type=float, metavar="KHZ", help="scan from this kHz")
+    sc.add_argument("--stop", type=float, metavar="KHZ", help="scan to this kHz")
+    sc.add_argument("--top", type=int, default=6, help="probe the N strongest peaks (6)")
+    sc.add_argument("--dwell", type=float, default=8.0, help="seconds per candidate (8)")
+    sc.add_argument("--survey-seconds", type=float, default=3.0,
+                    help="length of the rtl_power sweep (3)")
+    sc.add_argument("--device", help="RTL-SDR serial or index")
+    sc.add_argument("--ppm", type=int, default=0, help="frequency correction")
+    sc.add_argument("--gain", default="auto", help="tuner gain in dB, or auto")
+    sc.add_argument("--hf", action="store_true", help="HF via direct sampling")
+    sc.add_argument("--bias-tee", action="store_true", help="power a bias tee")
+    sc.add_argument("--mode", default="usb", help="rtl_fm demod (usb, lsb, am)")
+    sc.add_argument("--list-bands", action="store_true", help="show the presets")
+    sc.set_defaults(func=cmd_scan)
 
     sd = sub.add_parser("sdr", help="tune a hardware RTL-SDR and feed the cable")
     sd.add_argument("freq", nargs="?", help="frequency: 7.03 (MHz), 7030 (kHz) or 7030000 (Hz)")

@@ -287,6 +287,7 @@ Quick start (WebSDR or any audio source)
      'morse-logger wpm' if the copy looks spaced out ("N O W", "WE E K").
 
 Hardware RTL-SDR (optional, rtl-sdr package included)
+  morse-logger scan --band 40m        survey a CW segment (reports, does not retune)
   morse-logger sdr --list             find the sticks (serial numbers)
   morse-logger sdr start 7.03 --hf    HF below 24 MHz via direct sampling (Blog V3)
   morse-logger sdr start 144.05       VHF/UHF with a generic DVB-T stick
