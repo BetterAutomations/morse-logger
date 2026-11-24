@@ -1,8 +1,16 @@
 # morse-logger — Morse (CW) logger
 
-Listens to an audio input, decodes Morse code and files every transmission into a
-timestamped log. Works with a virtual audio cable (WebSDR, SDR software, another
-computer) and with real hardware (receiver line-out into a USB sound card).
+* Lightweight wrapper for fldigi. Listens to an audio input, decodes Morse
+code and files every transmission into a timestamped log.
+* Works with a virtual audio cable (WebSDR, SDR software, another computer)
+and with real hardware (receiver line-out into a USB sound card).
+* Optional abbreviation expansion (e.g. TU shows as 'thank you[TU]' in logs)
+* Optional automatic retuning of the audio signal to isolate the best signal
+* Optional automatic detection of word count (WPM) for coherent logging
+* Supports scanning an entire band
+* Supports decoding multiple conversations at once
+* Automatic CPU detection for slower computers such as an Intel Core 2 Duo
+SU9300 (released in 2008).
 
 Requires Ubuntu 26.04 LTS. (Coming soon: A Flatpak for more distros and Ubuntu
 versions.)
@@ -28,7 +36,7 @@ installer was told otherwise. `MORSE_LOGGER_HOME` overrides it.
 No hardware is needed for a WebSDR. For a receiver or an RTL-SDR stick, see
 [Hardware](#hardware) below.
 
-## Getting good copy
+## Getting good copy (decoding)
 
 The decoder only sees what reaches the audio; almost every "it sounds clear but
 the log is garbage" case is one of these five things.
@@ -46,7 +54,7 @@ next element. Open it to 200–250 Hz for contest speeds.
 contrast the decoder slices on — the single most damaging setting for CW.
 
 **One signal at a time.** fldigi decodes one tone. A second station closer than
-the decoder bandwidth (250 Hz by default) is interleaved into the copy, so let
+the decoder bandwidth (150 Hz by default) is interleaved into the copy, so let
 the receiver's filter choose.
 
 **Retune in the receiver, then re-tune the decoder.** Changing frequency in the
@@ -375,8 +383,8 @@ sudo modprobe -r dvb_usb_rtl28xxu
 
 **Calibrate `--ppm` once per stick** with `rtl_test -p` (see
 `https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/`); a cheap stick can be 30–60
-ppm off, which is 200–450 Hz at 7 MHz — enough to put a CW signal outside the
-250 Hz filter.
+ppm off, which is 200–450 Hz at 7 MHz — enough to put a CW signal outside even
+a 250 Hz filter.
 
 **One instance per machine.** All instances share the `morse-logger_cable` sink/source and
 the XML-RPC port (7362), so a second `morse-logger start` fails with
@@ -503,7 +511,7 @@ tool sets all of them:
 |---|---|---|
 | squelch | on, level 30 | with the squelch off fldigi decodes the noise floor into letters. `squelch_level` raises the gate to reject weaker QRM, lowers it to hear weak signals |
 | matched filter | on, `1200/wpm` ms | the filter should average about one dot. It used to be fixed at 100 ms, which spans three and a half dots at 45 WPM and smears the transitions the decoder slices on |
-| bandwidth | 250 Hz (`bandwidth_hz`) | ±125 Hz around the tone, wide enough for 40+ WPM. Narrow it to 100-150 Hz when a neighbour is inside it |
+| bandwidth | 150 Hz (`bandwidth_hz`) | ±75 Hz around the tone. Widen to 250 Hz for 40+ WPM contest copy, narrow to 100 Hz when a neighbour is inside the filter |
 | sweet spot and speed tracking | tone, on | the sweet spot is set to the tuned tone, so the decoder's reference and the filter agree |
 
 **Clipping beats all of it.** A signal at 0 dBFS sounds perfectly clear and
