@@ -771,3 +771,9 @@ slower than the old 40 s limit - the daemon is running, nothing is lost.
 `checksums.sha256` and stamps `os-release` so `install.sh` can warn when the
 bundle is being used on a different Ubuntu release. Keep the bundle directory on
 a USB stick with the radio — that is the disaster-recovery copy.
+
+## Licence
+
+GPL-3.0-or-later - see [LICENSE](LICENSE). This drives fldigi as a separate
+process over XML-RPC rather than linking it, so the GPL is a choice rather than
+an obligation; it matches the convention in ham radio software.
