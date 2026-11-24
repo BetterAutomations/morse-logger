@@ -12,12 +12,11 @@ stale directories
 * Diagnostics for optimal copy (decoding)
 * Writes a searchable record: timestamped text, JSONL, and SQLite with
 frequency, quality, tone and speed
+* RTL-SDR band survey (`scan`) reports which signals are actually keying
+* Multiple simultaneous audio channels, one cable per conversation — the second
+decoder is in progress
 * Fully offline installer, requires no network to install and use
 * Optional abbreviation expansion (e.g. TU shows as 'thank you[TU]' in logs)
-* Optional automatic retuning of the audio signal to isolate the best signal
-* Optional automatic detection of word count (WPM) for coherent logging
-* Supports scanning an entire band
-* Supports decoding multiple conversations at once
 * Automatic CPU detection for slower computers such as an Intel Core 2 Duo
 SU9300 (released in 2008).
 
@@ -47,6 +46,9 @@ installer was told otherwise. `MORSE_LOGGER_HOME` overrides it.
 
 No hardware is needed for a WebSDR. For a receiver or an RTL-SDR stick, see
 [Hardware](#hardware) below.
+
+Architecture, measurements and bundle construction are in
+[`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## Getting good copy (decoding)
 
@@ -101,21 +103,6 @@ odd".
 - **Sample rate**: 1.2 or 2.4 MS/s is enough for a single 3 kHz channel; higher
   rates only add USB load.
 
-## How it fits together
-
-    WebSDR / SDR app / receiver
-              |  audio
-              v
-      [morse-logger_cable ]  pipewire null sink  <-- morse-logger cable up
-              |  monitor
-              v
-      [morse-logger_cable_src]  remapped source
-              |
-        fldigi (Xvfb, CW modem, XML-RPC on 7362)
-              |  talk/textout.txt  (decoded characters, streamed)
-              v
-      supervisor loop  ->  lines by length  ->  logs/morse-*.txt + .jsonl + .sqlite3
-
 ## Install (offline)
 
 The bundle directory contains everything: ~240 `.deb` files (fldigi, Xvfb,
@@ -150,6 +137,8 @@ logger straight from this directory without root (`python3 -m morse_logger.cli d
 ```
 morse_logger/        the program (standard library only - no pip, no venv)
 tools/audit_verbs.py checks that every verb is documented
+docs/DESIGN.md       architecture, measurements, bundle construction (not needed to use it)
+docs/HARDWARE-TESTS.md  the checks that need a real dongle, sound card or clean machine
 install.sh           offline installer (self-locating; prompts for the data directory)
 refresh-bundle.sh    rebuilds bundle/ from the network
 bundle/   runtime/   NOT in git: ~340 MB of .deb files and an unpacked copy of
@@ -436,34 +425,6 @@ that is simply English. Around 160 entries cover Q-signals (`QTH`, `QSL`, `QSY`,
 `KEYER`), and letters (`R`, `K`, `DE`, `U`, `W`, `X`, `SK`, `AR`, `KN`).
 
 
-## W1AW recordings and Farnsworth spacing
-
-W1AW's "5 WPM" practice is not 5 WPM elements: it sends ~14 WPM characters with
-1.5 s between letters (Farnsworth). Measured from a real recording: dots 84 ms,
-dashes 243 ms, element gaps 77 ms, **letter gaps 1501 ms**, word gaps 3505 ms.
-
-fldigi's CW decoder cannot follow that - it loses timing state across the long
-gaps. Measured on the same text: normal spacing 86% correct, 0.6 s gaps 80%,
-1.5 s gaps 26%. No tone, level, speed or `CWFARNSWORTH` setting fixes it.
-
-`morse-logger retime` fixes it by re-emitting the audio at standard 1/3/7 dot spacing at
-the same character speed:
-
-```
-morse-logger retime test_recordings/260107_05WPM.mp3 --tone 750 --wpm 14 --play
-```
-
-It reports what it measured (`marks 1032 (580 dots, 452 dashes), 281 letter
-gaps, 92 word gaps; 965s in -> 310s out`) and writes `<file>.retimed.raw`. The
-retimed audio decodes as ordinary CW:
-
-```
-OW 5 WPM BT TEXT IS FROM MARCH 2024 QST PAGE 51 BT I H...
-```
-
-Note the speed setting: the decoder must be at the *character* speed (14), not
-the advertised 5.
-
 ## Finding the CW tone
 
 `morse-logger tune --auto` scores candidates by **keying structure** - elements
@@ -701,20 +662,17 @@ speed was right.
 
 ### Speed watchdog (automatic)
 
-Because `morse-logger wpm` measures the real fist, the daemon can keep the speed
-corrected by itself — no need to notice the spaces and intervene:
+Because `morse-logger wpm` measures the real fist, the daemon keeps the speed
+corrected by itself:
 
 ```
 [11:18:37] speed watchdog: fist measures 12 WPM (dot 100 ms, confidence 0.90)
            but the decoder is set to 20 - restarting fldigi at 12 WPM
-[11:18:37] speed watchdog: decoder now at 12 WPM (restart #1)
 ```
 
-It measures every 240 s (240/360/480 by CPU profile) and restarts fldigi only when the measured speed differs
-by **20 % or more and at least 2 WPM**. Verified end to end with a real fldigi:
-the same 12 WPM signal decoded `T W H A T ARE YOUR PLANS FOR THE WEEK` at the
-20 WPM setting, and `WHAT ARE YOUR PLANS FOR THE WEEK` after the watchdog
-restart. Guards, because a restart costs a few seconds of copy:
+It measures every 60 s on a fast machine (120 s medium, 240 s slow) and restarts
+fldigi only when the measured speed differs by **20 % or more and at least
+2 WPM**. Guards, because a restart costs a few seconds of copy:
 
 | guard | behaviour |
 |---|---|
@@ -724,22 +682,20 @@ restart. Guards, because a restart costs a few seconds of copy:
 | small drift (<20 % or <2 WPM) | ignored |
 | `speed_watchdog_max_restarts` | 4 per session, then it stops trying |
 
-`morse-logger status` reports the decoder's current speed on the decoder line, and
-adds the last measurement when it disagrees with the setting - so a stale speed is
-visible rather than hidden:
+`morse-logger status` reports the decoder's current speed, and adds the last
+measurement when it disagrees with the setting - a stale speed is visible rather
+than hidden:
 
 ```
   service   fldigi pid 1627546  OK
   settings  tone 610 Hz  speed 22 WPM  (last measured 17 WPM 96s ago)
 ```
 
-`service` is about the process, `settings` about the decoder. **OK** = the
-process is alive *and* answered XML-RPC at this status write (every 2 s); it says
-nothing about the signal, so look at `signal` for quality. **NOT RESPONDING** =
-the process exists but does not answer, and the daemon is restarting it. **No
-`service` line at all** = nothing is running.
-The `(last measured ...)` note appears only when the last measurement disagrees
-with the setting by 0.5 WPM or more.
+`service` is about the process, `settings` about the decoder. **OK** = alive
+*and* answered XML-RPC at the last status write; it says nothing about the
+signal, so look at `signal` for quality. **NOT RESPONDING** = the process exists
+but does not answer, and the daemon is restarting it. No `service` line at all =
+nothing is running.
 
 It also reports `speed wd  N speed correction(s), decoder now X WPM` when the
 watchdog has acted.
@@ -872,54 +828,6 @@ now running (pid 712785)
 
 If the message appeared but the log shows `logging to ...`, the machine was just
 slower than the old 40 s limit - the daemon is running, nothing is lost.
-
-## Design notes
-
-* **Lines are emitted by length, not by transmission boundary.** A line is
-  written once the text reaches `line_target_chars` (60 characters of decoded
-  text, which renders to about 150 with timestamp and metadata), so lines are
-  consistently long. A transmission gap no longer ends a line; if copy stops, the
-  remnant is flushed after `line_idle_flush_s` (120 s) or at shutdown.
-* **The target counts raw text, not the rendered line.** Glosses add roughly
-  10-15 % (`speed[WPM]`, `confirm[QSL]`), so a 75-character target
-  renders near 90; 60 is what lands the whole line at ~150. If you change
-  `translate`, re-check the rendered length rather than trusting the target.
-* `max_line_chars` (120) is the cap on *decoded* characters; `log_line_max`
-  (150) is a hard cap on the finished line. If the glossed text will not fit,
-  the record is split at a token boundary and the remainder is logged as **its
-  own record with the same timestamp** (adds `continued:1` in the JSONL) rather
-  than as an indented fragment. A gloss is never split from its meaning. Set
-  `log_line_max=0` to disable.
-* `line_target_chars` (60) is how much *raw* text to accumulate before writing a
-  line, and `line_target_auto` lets the logger shorten that target whenever a
-  line actually overflows, then creep back up - glosses can double the rendered
-  width, so a fixed target straddles the cap. Set `line_target_chars=0` to go
-  back to gap-based lines.
-* Text that is cut by the length target is marked: a trailing `...` means more
-  copy followed in the same over, a leading `...` means this line continues the
-  previous one. The line's timestamp is always when its first character arrived.
-* fldigi emits characters as they decode and inserts newlines at arbitrary
-  buffer points, so morse-logger ignores its newlines entirely and assembles its own
-  lines. `line_gap_s` (default 2 s) is still used to decide whether a burst
-  belongs to the same transmission (it gates the speed watchdog, so a speed
-  change never cuts a line). One continuous CQ loop
-  therefore becomes one log line, not fifty fragments.
-* The first character of a transmission is sometimes lost or mangled — the
-  decoder needs a moment to lock onto the signal. This is inherent to CW
-  decoding, not a bug; real operators repeat their call.
-* fldigi is started on its own Xvfb display with a minimal, generated
-  `fldigi_def.xml`; the audio device is pinned by *name* (not index), so it
-  survives device renumbering.
-* The daemon restarts fldigi with backoff if it dies and never replays text it
-  has already logged.
-
-## Bundling
-
-`refresh-bundle.sh` resolves the full dependency closure with
-`apt-cache depends --recurse`, downloads it, copies the app, writes
-`checksums.sha256` and stamps `os-release` so `install.sh` can warn when the
-bundle is being used on a different Ubuntu release. Keep the bundle directory on
-a USB stick with the radio — that is the disaster-recovery copy.
 
 ## Licence
 
