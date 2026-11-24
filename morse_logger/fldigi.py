@@ -15,6 +15,7 @@ provision a minimal fldigi_def.xml ourselves - that also pins the audio device
 by *name* (PORTINDEVICE), which survives device renumbering.
 """
 import os
+import re
 import shutil
 import signal
 import socket
@@ -307,9 +308,27 @@ class Fldigi:
             open(self.textout, "w").close()
 
     # ---------- process ----------
+    def display_alive(self):
+        """Is the X display we are using still there?
+
+        Xvfb can be killed (or crash) while fldigi is running; fldigi then dies
+        with it and every restart fails, so the daemon has to notice and start a
+        fresh display rather than counting the failures.
+        """
+        if not self.display:
+            return True
+        m = re.match(r":(\d+)", self.display)
+        if m and os.path.exists(f"/tmp/.X11-unix/X{m.group(1)}"):
+            return self.xvfb is None or self.xvfb.poll() is None
+        return False
+
     def _start_xvfb(self):
         if self.display:
-            return
+            if self.display_alive():
+                return
+            # the old server is gone: drop the stale handle and start a new one
+            self.xvfb = None
+            self.display = None
         if shutil.which("Xvfb"):
             n = _free_display()
             self.display = f":{n}"

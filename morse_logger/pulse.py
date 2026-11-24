@@ -21,6 +21,21 @@ SINK_DESC = "Morse logger virtual cable"
 SOURCE_DESC = "Morse logger cable source"
 
 
+def sink_name(channel=1):
+    """Channel 1 keeps the original name; later channels get a suffix."""
+    return SINK if channel <= 1 else "%s_%d" % (SINK, channel)
+
+
+def source_name(channel=1):
+    return SOURCE if channel <= 1 else "%s_src_%d" % (SINK, channel)
+
+
+def cable_channels():
+    """Which cable channels exist right now, e.g. [1, 2]."""
+    names = {r[1] for r in sinks() if len(r) > 1}
+    return [ch for ch in range(1, 9) if sink_name(ch) in names]
+
+
 class PulseError(RuntimeError):
     pass
 
@@ -111,15 +126,17 @@ def _load_module(arg, state_file=None):
     return mid
 
 
-def ensure_cable(state_file=None, monitor=False, rate=48000, tap=False):
+def ensure_cable(state_file=None, monitor=False, rate=48000, tap=False, channel=1):
     """Create the virtual cable if missing. Returns dict of what was done.
 
     monitor=True : you hear what the cable carries (loopback cable -> speakers)
     tap=True     : the cable carries a copy of everything your speakers play
                    (loopback speakers -> cable), so nothing has to be rerouted
+    channel=N    : which cable; 1 is morse-logger_cable, 2 is morse-logger_cable_2
     """
+    sink, source = sink_name(channel), source_name(channel)
     done = {"sink": False, "source": False, "monitor": False, "tap": False,
-            "monitor_skipped": False}
+            "monitor_skipped": False, "channel": channel}
     # A tap (speakers -> cable) and monitoring (cable -> speakers) are the same
     # loop wired twice: together they run away to 0 dBFS and the decoder hears
     # nothing but clipping. The tap wins; the caller is told monitoring was left
@@ -127,25 +144,25 @@ def ensure_cable(state_file=None, monitor=False, rate=48000, tap=False):
     if monitor and (tap or _tap_active()):
         monitor = False
         done["monitor_skipped"] = True
-    if not sink_exists():
+    if not sink_exists(sink):
         _load_module([
             "module-null-sink",
-            f"sink_name={SINK}",
+            f"sink_name={sink}",
             f'sink_properties=device.description="{SINK_DESC}"',
             f"rate={rate}",
         ], state_file)
         done["sink"] = True
         # give pipewire a moment to publish the node
         for _ in range(20):
-            if sink_exists():
+            if sink_exists(sink):
                 break
             time.sleep(0.1)
-    if not source_exists():
+    if not source_exists(source):
         try:
             _load_module([
                 "module-remap-source",
-                f"master={SINK}.monitor",
-                f"source_name={SOURCE}",
+                f"master={sink}.monitor",
+                f"source_name={source}",
                 f'source_properties=device.description="{SOURCE_DESC}"',
             ], state_file)
             done["source"] = True
@@ -155,11 +172,11 @@ def ensure_cable(state_file=None, monitor=False, rate=48000, tap=False):
     if tap:
         if not _tap_active():
             dst = default_sink_name()
-            if dst and dst != SINK:
+            if dst and dst != sink:
                 _load_module([
                     "module-loopback",
                     f"source={dst}.monitor",
-                    f"sink={SINK}",
+                    f"sink={sink}",
                     "latency_msec=40",
                     "source_dont_move=true",
                     "sink_dont_move=true",
@@ -168,10 +185,10 @@ def ensure_cable(state_file=None, monitor=False, rate=48000, tap=False):
     if monitor:
         if not _monitor_active():
             dst = default_sink_name()
-            if dst and dst != SINK:
+            if dst and dst != sink:
                 _load_module([
                     "module-loopback",
-                    f"source={SINK}.monitor",
+                    f"source={sink}.monitor",
                     f"sink={dst}",
                     "latency_msec=60",
                 ], state_file)
@@ -230,15 +247,31 @@ def stop_monitor(state_file=None):
     return killed
 
 
-def cable_down(state_file=None, all_loopbacks=True):
-    """Remove the cable (unloads our modules)."""
+def modules_for_channel(channel):
+    """Module ids that belong to one cable channel (its sink, source, loops)."""
+    sink, source = sink_name(channel), source_name(channel)
+    names = [sink, sink + ".monitor", source]
+    out = []
+    for mid, block in _module_blocks():
+        for name in names:
+            if re.search(r"(?:sink_name|source_name|master|sink|source)=%s(?:\s|$)"
+                         % re.escape(name), block):
+                out.append(mid)
+                break
+    return out
+
+
+def cable_down(state_file=None, all_loopbacks=True, channel=None):
+    """Remove one cable channel, or all of them when channel is None."""
     removed = []
     if all_loopbacks:
         removed += stop_monitor(state_file)
         removed += stop_tap(state_file)
-    for mid in list_modules_for_cable():
-        _run(["pactl", "unload-module", mid], check=False)
-        removed.append(mid)
+    targets = [channel] if channel else (cable_channels() or [1])
+    for ch in targets:
+        for mid in modules_for_channel(ch):
+            _run(["pactl", "unload-module", mid], check=False)
+            removed.append(mid)
     _forget_modules(removed, state_file)
     if state_file and os.path.exists(state_file):
         try:

@@ -458,6 +458,8 @@ class Runner:
 
     def _restart(self):
         self.restarts += 1
+        if self.eng is not None and not self.eng.display_alive():
+            self.say("the X display died - starting a fresh one before the decoder")
         try:
             if self.eng:
                 self.eng.stop()

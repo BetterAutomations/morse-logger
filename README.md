@@ -212,6 +212,26 @@ run `morse-logger tune --auto`.
 | `morse-logger logs` | show the log directory |
 | `morse-logger config [--set key=value]` | show/change settings |
 
+## Several conversations at once
+
+Before trusting this on real hardware, work through
+[`docs/HARDWARE-TESTS.md`](docs/HARDWARE-TESTS.md) — it lists the checks that
+cannot be done on a development machine, from PPM calibration to `scan --lock`.
+
+One decoder copies one signal, so N conversations means N cables and N decoders.
+The plumbing exists; the extra decoder does not yet.
+
+    morse-logger cable up --channels 2          # also creates morse-logger_cable_2
+    morse-logger route-audio --index 3 --to 2   # this tab onto the second cable
+
+Each cable has its own sink and source (`morse-logger_cable_2`,
+`morse-logger_cable_src_2`) and is independent: `cable down --channels 2` removes
+only that one. Channel 1 keeps the original names.
+
+For the SDR, `--channels` is necessary but not sufficient: one dongle has one
+tuner, so several simultaneous signals need one wideband capture plus a software
+channeliser (see the hardware test document).
+
 ## Logs
 
 `~/morse-logger/logs/` (override with `MORSE_LOGGER_HOME`):

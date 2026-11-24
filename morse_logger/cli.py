@@ -180,8 +180,13 @@ def cmd_cable(args):
                   "or 'morse-logger cable up --no-monitor'.")
             return 2
         removed = pulse.stop_monitor(state_file=sf) if args.no_monitor else []
-        done = pulse.ensure_cable(state_file=sf, monitor=not args.no_monitor)
-        print(f"virtual cable ready: sink '{pulse.SINK}' -> source '{pulse.SOURCE}'")
+        channels = max(1, int(getattr(args, "channels", 1) or 1))
+        done = {}
+        for ch in range(1, channels + 1):
+            done = pulse.ensure_cable(state_file=sf, monitor=(not args.no_monitor and ch == 1),
+                                      channel=ch)
+            print(f"virtual cable {ch}: sink '{pulse.sink_name(ch)}' -> "
+                  f"source '{pulse.source_name(ch)}'")
         if done.get("monitor_skipped"):
             print("monitoring left off: the copy loop is running "
                   "('morse-logger route-audio --stop-copy' to remove it)")
@@ -192,8 +197,12 @@ def cmd_cable(args):
         if done["sink"]:
             print("(created just now)")
     elif args.action == "down":
-        removed = pulse.cable_down(state_file=sf)
-        print(f"virtual cable removed ({len(removed)} module(s) unloaded)")
+        only = getattr(args, "channels", 1) if args.channels > 1 else None
+        removed = pulse.cable_down(state_file=sf, channel=only)
+        if only:
+            print(f"cable {only} removed ({len(removed)} module(s) unloaded)")
+        else:
+            print(f"all cables removed ({len(removed)} module(s) unloaded)")
     else:
         st = pulse.cable_status()
         print(f"sink   {pulse.SINK}: {'present' if st['sink'] else 'MISSING'}")
@@ -292,7 +301,8 @@ def cmd_route(args):
     picked = [row for row in pulse.sink_input_details()
               if (not args.index or str(row["index"]) in {str(i) for i in args.index})
               and not str(row["index"]).startswith("loopback")]
-    moved, skipped = pulse.route_sink_inputs(indices=args.index)
+    moved, skipped = pulse.route_sink_inputs(target=pulse.sink_name(getattr(args, "to", 1) or 1),
+                                             indices=args.index)
     # Remember the applications in scope whether or not they had to move, so a
     # stream that is already on the cable still gets its app remembered - that is
     # what makes the routing survive a browser reload.
@@ -1296,12 +1306,18 @@ def build_parser():
     c.add_argument("action", choices=["up", "down", "status"])
     c.add_argument("--no-monitor", action="store_true",
                    help="do not loop the cable output back to your speakers")
+    c.add_argument("--channels", type=int, default=1, metavar="N",
+                   help="how many independent cables to create (default 1; "
+                        "one per simultaneous conversation)")
     c.set_defaults(func=cmd_cable)
 
     r = sub.add_parser("route-audio",
                        help="send playing audio (e.g. a WebSDR tab) to the cable")
     r.add_argument("--all", action="store_true",
                    help="move every playing stream (usual choice for a WebSDR)")
+    r.add_argument("--to", type=int, default=1, metavar="N",
+                   help="cable number to move streams onto (default 1; "
+                        "create extras with 'cable up --channels N')")
     r.add_argument("--copy", action="store_true",
                    help="copy everything your speakers play into the cable "
                         "(nothing is moved, nothing needs remembering)")
