@@ -279,6 +279,28 @@ def measure(data, rate=8000, win_ms=None, tone_hz=None, smooth=2,
             return band
     return broadband_reason or {"rejected": "no audio to analyse"}
 
+
+def listen_windows(interval_s, max_total=31.0, first=5.0, extra=(10.0, 15.0)):
+    """Windows for an adaptive listen that must finish before the next cycle.
+
+    Probing blocks the daemon loop, so an interval of 15 s cannot afford a 30 s
+    listen: the budget is the interval minus a small margin, and the last window
+    is trimmed to fit rather than overshooting.
+    """
+    cap = max(first, min(max_total, float(interval_s) - 2.0))
+    windows, total = [], 0.0
+    if cap >= first:
+        windows.append(first)
+        total = first
+    for want in extra:
+        if total + want > cap:
+            if cap - total >= 3.0:
+                windows.append(round(cap - total, 1))
+            break
+        windows.append(want)
+        total += want
+    return tuple(windows)
+
 def measure_live(capture, tone_hz=None, windows=(5, 10, 15), need=8, say=None):
     """Measure the fist, listening longer while there is too little CW.
 

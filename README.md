@@ -631,20 +631,23 @@ adds the last measurement when it disagrees with the setting - so a stale speed 
 visible rather than hidden:
 
 ```
-  decoder   fldigi pid 1627546  OK  modem CW  tone 610 Hz  speed 22 WPM
-  decoder   fldigi pid 1627546  OK  modem CW  tone 610 Hz  speed 22 WPM  (last measured 17 WPM 96s ago)
+  service   fldigi pid 1627546  OK
+  settings  tone 610 Hz  speed 22 WPM  (last measured 17 WPM 96s ago)
 ```
 
-The health word sits immediately after the pid, and a `note` line at the end of
-the status block spells out what it means: **OK** = the process is alive *and*
-answered XML-RPC at this status write (every 2 s) - it says nothing about the
-signal, so look at `signal` for quality. **NOT RESPONDING** = the process exists
-but does not answer, and the daemon is restarting it. **No decoder line at all**
-= nothing is running.
+`service` is about the process, `settings` about the decoder. **OK** = the
+process is alive *and* answered XML-RPC at this status write (every 2 s); it says
+nothing about the signal, so look at `signal` for quality. **NOT RESPONDING** =
+the process exists but does not answer, and the daemon is restarting it. **No
+`service` line at all** = nothing is running.
+The `(last measured ...)` note appears only when the last measurement disagrees
+with the setting by 0.5 WPM or more.
 
 It also reports `speed wd  N speed correction(s), decoder now X WPM` when the
 watchdog has acted.
 Disable with `morse-logger config --set speed_watchdog=false`.
+
+**A probe cannot outlast its own cycle.** The speed check captures audio synchronously, so the adaptive listen (5 s, then +10, +15) is capped at the interval minus two seconds: at `speed_watchdog_interval_s=15` it listens in two windows totalling 13 s. Short cycles are viable on a fast CPU - the measurement itself costs ~0.05 s - but each probe is a blind window for text (nothing is lost, it is buffered in `textout.txt`) and it also waits for a 5.5 s gap so it never splits an over, so a 15 s cycle really means "every 15 s, between overs".
 
 **Watchdog cycles are deliberately slow, and slower on old hardware.** The
 periodic work is cheap (`autotune.pick` costs ~0.35 s of CPU for 8 s of audio on

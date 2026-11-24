@@ -192,9 +192,12 @@ class Runner:
         apply exactly the same guards.
         """
         cfg = self.cfg
+        # The listen budget must fit inside the watchdog interval: probing blocks
+        # the loop, so a short interval cannot afford a 30 s listen.
+        windows = wpm.listen_windows(float(cfg.get("speed_watchdog_interval_s", 240)))
         m = wpm.measure_live(
             lambda sec: pulse.capture_samples(sec, rate=8000, source=cfg["input_device"]),
-            tone_hz=cfg.get("tone_hz"), windows=(5, 10, 15),
+            tone_hz=cfg.get("tone_hz"), windows=tuple(windows),
             say=(self.say if label else None))
         if not m:
             if label:
