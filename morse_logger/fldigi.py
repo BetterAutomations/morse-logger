@@ -24,6 +24,22 @@ import xmlrpc.client
 
 from . import pulse
 
+
+def matched_filter_ms(wpm):
+    """Matched-filter length in milliseconds for a given speed.
+
+    A dot lasts 1200/wpm ms. A filter much longer than that averages across
+    element boundaries and smears the very transitions the decoder slices on -
+    at 45 WPM a 100 ms filter spans three and a half dots.
+    """
+    try:
+        wpm = float(wpm)
+    except (TypeError, ValueError):
+        wpm = 20.0
+    if wpm <= 0:
+        wpm = 20.0
+    return int(max(20, min(150, round(1200.0 / wpm))))
+
 CONFIG_TEMPLATE = """<FLDIGI_DEFS>
 <AUDIOIO>1</AUDIOIO>
 <PORTINDEVICE>{device}</PORTINDEVICE>
@@ -35,7 +51,7 @@ CONFIG_TEMPLATE = """<FLDIGI_DEFS>
 <CWTRACK>1</CWTRACK>
 <CWBANDWIDTH>{bw}</CWBANDWIDTH>
 <CWMFILT>{mfilt}</CWMFILT>
-<CWMFILTLEN>100</CWMFILTLEN>
+<CWMFILTLEN>{mfiltlen}</CWMFILTLEN>
 <CWDEFSPEED>{wpm}</CWDEFSPEED>
 <CWSPEED>{wpm}</CWSPEED>
 <CWUSEFARNSWORTH>{farnsworth_use}</CWUSEFARNSWORTH>
@@ -281,6 +297,7 @@ class Fldigi:
         body = CONFIG_TEMPLATE.format(device=self.input_device, tone=int(self.tone),
                                       bw=int(self.bandwidth), mfilt=self.matched_filter,
                                       wpm=int(round(self.wpm)),
+                                      mfiltlen=matched_filter_ms(self.wpm),
                                       farnsworth_use=1 if self.farnsworth_wpm else 0,
                                       farnsworth_wpm=self.farnsworth_wpm or 0)
         with open(path, "w") as f:

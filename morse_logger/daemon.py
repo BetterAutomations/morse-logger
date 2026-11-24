@@ -138,6 +138,13 @@ class Runner:
             log=self.say,
         )
         self.eng.start()
+        # fldigi decodes whatever clears its threshold; with the squelch off it
+        # happily turns the noise floor into letters. Apply our settings now.
+        try:
+            self.eng.rpc.call("main.set_squelch_level", float(cfg.get("squelch_level", 30)))
+            self.eng.rpc.call("main.set_squelch", 1 if cfg.get("squelch", True) else 0)
+        except Exception as exc:
+            self.say(f"could not set the decoder squelch: {exc}")
         self.tailer = logger.Tailer(self.eng.textout, from_end=True)  # skip stale text
         self.asm.cancel()
         self._autotuned = False
@@ -146,11 +153,15 @@ class Runner:
     def autotune(self, seconds=4.0):
         if not self.eng:
             return None
-        data = pulse.capture_samples(seconds, rate=8000, source=self.cfg["input_device"])
-        if autotune.level(data) < 20:
-            self.say("autotune: the cable is silent - nothing is playing into it")
-            return None
-        best = autotune.choose(data)
+        data, best = b"", None
+        for window in (seconds, 6.0, 8.0):
+            data += pulse.capture_samples(window, rate=8000, source=self.cfg["input_device"])
+            if autotune.level(data) < 20:
+                self.say("autotune: the cable is silent - nothing is playing into it")
+                return None
+            best = autotune.choose(data)
+            if best and best.get("tone_hz"):
+                break
         if not best or not best.get("tone_hz"):
             self.say("autotune: no CW tone found (no steady carrier, no keyed tone)")
             return None

@@ -1108,17 +1108,26 @@ def cmd_tune(args):
         print("decoder is not running (start it with: morse-logger start)")
         return 1
     if args.auto:
-        data = pulse.capture_samples(args.seconds, rate=8000, source=cfg["input_device"])
-        if len(data) < 8000:                       # less than half a second
-            print("could not read audio from the cable - check it with "
-                  "'morse-logger cable status' and 'morse-logger route-audio --list'")
-            return 1
-        lvl = autotune.level(data)
-        if lvl < 20:
-            print(f"the cable is silent (level {lvl:.0f}) - nothing is playing into it; "
-                  "see 'morse-logger route-audio --list'")
-            return 1
-        best = autotune.choose(data)
+        # CW arrives in bursts: a four second window can easily land between
+        # overs, so keep listening before declaring the band empty.
+        data, best = b"", None
+        for window in (args.seconds, 6.0, 8.0):
+            data += pulse.capture_samples(window, rate=8000, source=cfg["input_device"])
+            if len(data) < 8000:                   # less than half a second
+                print("could not read audio from the cable - check it with "
+                      "'morse-logger cable status' and 'morse-logger route-audio --list'")
+                return 1
+            lvl = autotune.level(data)
+            if lvl < 20:
+                print(f"the cable is silent (level {lvl:.0f}) - nothing is playing into it; "
+                      "see 'morse-logger route-audio --list'")
+                return 1
+            best = autotune.choose(data)
+            if best.get("usable") and best.get("tone_hz"):
+                if window != args.seconds:
+                    print(f"  locked after {len(data) / 16000:.0f}s of listening")
+                break
+            print(f"  nothing lockable in {len(data) / 16000:.0f}s of audio - listening longer")
         if not best.get("usable"):
             why = "clipped at 0 dBFS - lower the volume" if best.get("clipping") else \
                   "no steady carrier and no keyed tone found"
@@ -1127,7 +1136,6 @@ def cmd_tune(args):
             print(f"no CW tone to lock onto: {why}{near}")
             print(f"  the cable has audio (level {lvl:.0f}); the signal may be fading, "
                   f"or several signals may share the filter")
-            return 1
             return 1
         print(f"strongest steady tone: {best['tone_hz']} Hz "
               f"(steady in {int(best['stability'] * 100)}% of windows)")

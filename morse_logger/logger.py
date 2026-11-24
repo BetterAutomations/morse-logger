@@ -52,6 +52,8 @@ DEFAULT_CONFIG = {
     "poll_interval_s": 0.2,          # how often the supervisor loop wakes
     "watchdog_coherence": 45,
     "watchdog_min_quality": 40,
+    "squelch": True,             # fldigi gates decoding on its squelch: off = letters from noise
+    "squelch_level": 30,         # 0-100; raise to reject weaker QRM, lower to hear weak signals
     "watchdog_cooldown_s": 600,
     "speed_watchdog": True,
     "wpm_auto_on_start": True,

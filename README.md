@@ -445,6 +445,27 @@ Context rules that earn the flag's absence: `DE` between callsigns is "from";
 `K` at the end of a transmission is the invitation; `R` away from digits is
 "received"; `X` at the end is "bye". Everything else stays flagged.
 
+## Decoder settings that matter
+
+fldigi's CW decoder has four knobs that change what actually comes out, and the
+tool sets all of them:
+
+| setting | value | why |
+|---|---|---|
+| squelch | on, level 30 | with the squelch off fldigi decodes the noise floor into letters. `squelch_level` raises the gate to reject weaker QRM, lowers it to hear weak signals |
+| matched filter | on, `1200/wpm` ms | the filter should average about one dot. It used to be fixed at 100 ms, which spans three and a half dots at 45 WPM and smears the transitions the decoder slices on |
+| bandwidth | 150 Hz (`bandwidth_hz`) | ±75 Hz around the tone. Narrow it to ~100 Hz when a neighbour is inside it |
+| sweet spot and speed tracking | tone, on | the sweet spot is set to the tuned tone, so the decoder's reference and the filter agree |
+
+fldigi's AFC is **not** available for CW - the modem answers `Operation not
+supported by modem` - so a drifting carrier is followed by re-tuning, not by the
+decoder.
+
+**Clipping beats all of it.** A signal at 0 dBFS sounds perfectly clear and
+decodes as garbage, because the tops of the marks are flattened and the
+intermodulation lands inside the filter. `morse-logger doctor` flags a cable
+level above -1.5 dBFS for that reason; aim for about -12 dBFS.
+
 ## Keeping junk out of the log
 
 `q=` measures the *tone*, not the *text*: two stations on top of each other, or a
