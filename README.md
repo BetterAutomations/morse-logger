@@ -342,7 +342,7 @@ E acknowledge / confirm[QSL] EARL go ahead[K?] 4EIE you[U] from[DE] W1QJB semi-a
 * Every daily log file starts with a one-line legend.
 
 Abbreviations deliberately **not** expanded: callsigns, RST numbers, and any word
-that is simply English. Around 140 entries cover Q-signals (`QTH`, `QSL`, `QSY`,
+that is simply English. Around 160 entries cover Q-signals (`QTH`, `QSL`, `QSY`,
 `QRZ`, `QRM`, `QRP`, ...), operating shorthand (`UR`, `ES`, `HI`, `FB`, `TNX`,
 `PSE`, `AGN`, `CUL`, `CUAGN`), station bits (`RIG`, `ANT`, `ATU`, `BUG`, `PADDLE`,
 `KEYER`), and letters (`R`, `K`, `DE`, `U`, `W`, `X`, `SK`, `AR`, `KN`).

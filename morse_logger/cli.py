@@ -970,8 +970,11 @@ def _show_rec(rec, args):
         tags += f" coh={c:g}" if isinstance(c, float) else f" coh={c}"
     text = rec.get("text") if args.raw else (rec.get("text_xlated") or rec.get("text"))
     if getattr(args, "fldigi_debug", False):
+        # same timestamp and the same bracket width, so fldigi's characters
+        # begin in the same column as the rendered text on the line below
         raw = (rec.get("text") or "").replace("\n", " ")
-        print(f"  fldigi> {raw}", flush=True)
+        label = f"{'fldigi':<{max(len(tags), 6)}}"
+        print(f"{when}  [{label}]  {raw}", flush=True)
     print(f"{when}  [{tags}]  {text}", flush=True)
 
 
