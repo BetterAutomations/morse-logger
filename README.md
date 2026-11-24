@@ -28,6 +28,59 @@ installer was told otherwise. `MORSE_LOGGER_HOME` overrides it.
 No hardware is needed for a WebSDR. For a receiver or an RTL-SDR stick, see
 [Hardware](#hardware) below.
 
+## Getting good copy
+
+The decoder only sees what reaches the audio; almost every "it sounds clear but
+the log is garbage" case is one of these five things.
+
+**Level: aim for −20 to −10 dBFS.** Too quiet and there is nothing to measure;
+at 0 dBFS the tops of the marks are flattened and the intermodulation lands
+inside the filter. `morse-logger doctor` prints the level with a verdict, and
+`tune` refuses to lock on a clipped signal.
+
+**Filter: at least as wide as the speed in WPM.** A 33 Hz SDR filter is ideal up
+to about 20 WPM; a 45 WPM dot is 27 ms, and a 33 Hz filter smears it into the
+next element. Open it to 200–250 Hz for contest speeds.
+
+**No AGC.** AGC lifts the noise floor between elements and flattens the on/off
+contrast the decoder slices on — the single most damaging setting for CW.
+
+**One signal at a time.** fldigi decodes one tone. A second station closer than
+the decoder bandwidth (250 Hz by default) is interleaved into the copy, so let
+the receiver's filter choose.
+
+**Retune in the receiver, then re-tune the decoder.** Changing frequency in the
+browser or the dongle changes the audio pitch; run `tune --auto` (and
+`wpm --auto` if the speed differs) afterwards.
+
+### Signs of trouble
+
+| symptom | meaning | fix |
+|---|---|---|
+| `q=` high, `coh=` low | the decoder is slicing noise | check level and tone; narrow the filter |
+| `q= 0.0` with `OK` | decoder healthy, nothing to decode | is anything playing into the cable? |
+| `tune` says "clipped at 0 dBFS" | volume too high | back it off to −12 dBFS |
+| `wpm` says "very quiet" | signal too weak to measure | raise volume or RF gain |
+| letters split (`T E E E`) | speed or filter mismatch | `wpm --auto`, then widen the filter |
+| copy stops when the browser reloads | Chrome lost the audio device | restart the browser fully, not the tab |
+
+`morse-logger tail -f --fldigi-debug` shows fldigi's raw characters above each
+logged line, which separates "the decoder is struggling" from "our rendering is
+odd".
+
+### Hardware SDR
+
+- **Calibrate PPM** against WWV/CHU or a known carrier before judging copy; a
+  few ppm at 7 MHz is hundreds of Hz.
+- **Gain**: raise it until the noise floor climbs, then back off one step. Too
+  much gain is worse than too little — it produces the intermodulation that
+  looks like CW.
+- **HF on a Blog V3** needs `--hf` (direct sampling); the Q branch is quieter.
+- **USB power**: long cables and unpowered hubs cause dropped samples that sound
+  like QSB.
+- **Sample rate**: 1.2 or 2.4 MS/s is enough for a single 3 kHz channel; higher
+  rates only add USB load.
+
 ## How it fits together
 
     WebSDR / SDR app / receiver
@@ -179,7 +232,7 @@ probed and `--dwell` how long each gets.
 `--lock`, which would tune and set the speed on the best candidate, is not
 implemented yet.
 
-## Real hardware later
+## Real hardware
 
     morse-logger config --set input_device=<pulse-source-name>
     morse-logger start
@@ -214,12 +267,7 @@ run `morse-logger tune --auto`.
 
 ## Several conversations at once
 
-Before trusting this on real hardware, work through
-[`docs/HARDWARE-TESTS.md`](docs/HARDWARE-TESTS.md) — it lists the checks that
-cannot be done on a development machine, from PPM calibration to `scan --lock`.
-
 One decoder copies one signal, so N conversations means N cables and N decoders.
-The plumbing exists; the extra decoder does not yet.
 
     morse-logger cable up --channels 2          # also creates morse-logger_cable_2
     morse-logger route-audio --index 3 --to 2   # this tab onto the second cable
@@ -230,7 +278,7 @@ only that one. Channel 1 keeps the original names.
 
 For the SDR, `--channels` is necessary but not sufficient: one dongle has one
 tuner, so several simultaneous signals need one wideband capture plus a software
-channeliser (see the hardware test document).
+channeliser.
 
 ## Logs
 
@@ -367,25 +415,6 @@ that is simply English. Around 160 entries cover Q-signals (`QTH`, `QSL`, `QSY`,
 `PSE`, `AGN`, `CUL`, `CUAGN`), station bits (`RIG`, `ANT`, `ATU`, `BUG`, `PADDLE`,
 `KEYER`), and letters (`R`, `K`, `DE`, `U`, `W`, `X`, `SK`, `AR`, `KN`).
 
-**Expansions are one or two words**, no slashes and no parentheses - the log is
-read at speed, and a four-word gloss on a token that appears 100 times a night is
-just noise:
-
-| token | was | now |
-|---|---|---|
-| `CQ` | calling any station | `all stations` |
-| `RST` | readability-strength-tone report | `signal report` |
-| `QSL` | acknowledge / confirm | `confirm` |
-| `FB` | fine business (good) | `good` |
-| `OM` | old man (op) | `op` |
-| `QSY` | change frequency | `retune` |
-| `QRM` | man-made interference | `interference` |
-| `WPM` | words per minute | `speed` |
-| `SK` | end of contact | `sign off` |
-| `AR` | end of message | `end msg` |
-
-Three keep their natural length because shortening would lose the meaning:
-`88` = love and kisses, `CUAGN` = see you again, `QRU` = nothing for you.
 
 ## W1AW recordings and Farnsworth spacing
 
@@ -426,7 +455,7 @@ steady music tone at 700 Hz it moves to the CW at 600, 1000 or 2000 Hz correctly
 It is unreliable when the CW is within ~100 Hz of a strong steady tone, where the
 analysis band cannot separate them.
 
-## The one remaining flag (`?`)
+## The question mark flag (`?`)
 
 Exactly one token can still carry it, and only in one situation:
 
@@ -476,10 +505,6 @@ tool sets all of them:
 | matched filter | on, `1200/wpm` ms | the filter should average about one dot. It used to be fixed at 100 ms, which spans three and a half dots at 45 WPM and smears the transitions the decoder slices on |
 | bandwidth | 250 Hz (`bandwidth_hz`) | ±125 Hz around the tone, wide enough for 40+ WPM. Narrow it to 100-150 Hz when a neighbour is inside it |
 | sweet spot and speed tracking | tone, on | the sweet spot is set to the tuned tone, so the decoder's reference and the filter agree |
-
-fldigi's AFC is **not** available for CW - the modem answers `Operation not
-supported by modem` - so a drifting carrier is followed by re-tuning, not by the
-decoder.
 
 **Clipping beats all of it.** A signal at 0 dBFS sounds perfectly clear and
 decodes as garbage, because the tops of the marks are flattened and the
