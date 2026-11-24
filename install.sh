@@ -119,7 +119,8 @@ fi
 
 # ------------------------------------------------------------------ debs
 mapfile -t debs < <(ls -1 "$HERE"/debs/*.deb 2>/dev/null || true)
-[[ ${#debs[@]} -gt 0 ]] || die "no .deb files in $HERE/debs"
+[[ ${#debs[@]} -gt 0 ]] || die "no .deb files in $HERE/debs - the bundle is not
+       in git; build it first with ./refresh-bundle.sh (needs internet)"
 
 say ""
 say "Installing ${#debs[@]} packages (offline)"
