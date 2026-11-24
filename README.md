@@ -13,10 +13,12 @@ stale directories
 * Writes a searchable record: timestamped text, JSONL, and SQLite with
 frequency, quality, tone and speed
 * RTL-SDR band survey (`scan`) reports which signals are actually keying
-* Multiple simultaneous audio channels, one cable per conversation — the second
-decoder is in progress
+* Multiple simultaneous audio channels, one cable per conversation. (Second
+decoder is still in progress.)
 * Fully offline installer, requires no network to install and use
 * Optional abbreviation expansion (e.g. TU shows as 'thank you[TU]' in logs)
+* Optional automatic retuning of the audio signal to isolate the best signal
+* Optional automatic detection of word count (WPM) for coherent logging
 * Automatic CPU detection for slower computers such as an Intel Core 2 Duo
 SU9300 (released in 2008).
 
