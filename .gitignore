@@ -1,0 +1,29 @@
+# Built artefacts - regenerate with ./refresh-bundle.sh (needs network for the debs)
+/bundle/
+/build/
+/runtime/
+
+# Recordings are large and third-party (W1AW/ARRL bulletins); supply your own
+/test_recordings/*.mp3
+/test_recordings/*.wav
+/test_recordings/*.raw
+/test_recordings/*.retimed.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Local runtime state (never in the source tree, but just in case)
+/*.log
+*.pid
+config.json
+
+# Editors / OS
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
