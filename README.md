@@ -308,7 +308,7 @@ sudo modprobe -r dvb_usb_rtl28xxu
 **Calibrate `--ppm` once per stick** with `rtl_test -p` (see
 `https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/`); a cheap stick can be 30–60
 ppm off, which is 200–450 Hz at 7 MHz — enough to put a CW signal outside the
-150 Hz filter.
+250 Hz filter.
 
 **One instance per machine.** All instances share the `morse-logger_cable` sink/source and
 the XML-RPC port (7362), so a second `morse-logger start` fails with
@@ -454,7 +454,7 @@ tool sets all of them:
 |---|---|---|
 | squelch | on, level 30 | with the squelch off fldigi decodes the noise floor into letters. `squelch_level` raises the gate to reject weaker QRM, lowers it to hear weak signals |
 | matched filter | on, `1200/wpm` ms | the filter should average about one dot. It used to be fixed at 100 ms, which spans three and a half dots at 45 WPM and smears the transitions the decoder slices on |
-| bandwidth | 150 Hz (`bandwidth_hz`) | ±75 Hz around the tone. Narrow it to ~100 Hz when a neighbour is inside it |
+| bandwidth | 250 Hz (`bandwidth_hz`) | ±125 Hz around the tone, wide enough for 40+ WPM. Narrow it to 100-150 Hz when a neighbour is inside it |
 | sweet spot and speed tracking | tone, on | the sweet spot is set to the tuned tone, so the decoder's reference and the filter agree |
 
 fldigi's AFC is **not** available for CW - the modem answers `Operation not
@@ -504,6 +504,7 @@ later. To review a night's log without the noise:
 ```
 morse-logger tail --min-coherence 45 -n 200       # keep lines that are 45% believable or better
 morse-logger tail -f --min-coherence 45 --min-chars 20   # live, junk excluded
+morse-logger tail -f --fldigi-debug                      # show fldigi's own output
 morse-logger tail --min-quality 40 --raw
 morse-logger config --set min_coherence=45        # stop writing junk to the .txt log
 ```
@@ -511,6 +512,17 @@ morse-logger config --set min_coherence=45        # stop writing junk to the .tx
 `-f` follows either view — the plain text log, or the JSONL stream when a filter
 is active — and keeps applying the same filters to each new line as it is
 written. Ctrl-C or `kill` ends it cleanly.
+
+`--fldigi-debug` prints the characters fldigi actually emitted on the line above
+each entry, so you can see exactly what the decoder produced before any marking,
+glossing or filtering:
+
+```
+  fldigi> Q POTA DE E77SR RT PTTA DE EI7SR IQ PMTA DE E77SR NQ
+2026-11-24 09:14:40  [q=61.1 coh=26]  Q POTA DE E77SR RT PTTA DE EI7SR IQ PMTA DE E77SR NQ
+```
+
+It reads `morse.jsonl`, which is where the untouched decode is kept.
 
 It keeps working across the things that break a naive `tail -f` on a log like
 this: **the midnight rollover** (the daemon starts `morse-<next-day>.txt`, so the
@@ -747,9 +759,9 @@ Log lines tell you when any of it happens:
 |---|---|---|
 | `autotune_on_start` | true | find the tone at startup |
 | `wpm_auto_on_start` | true | measure the fist at startup |
-| `speed_watchdog` | true | periodic speed check (240 s on a fast machine) |
+| `speed_watchdog` | true | periodic speed check (60 s on a fast machine) |
 | `speed_watchdog_max_restarts` | 4 | restarts per session |
-| `watchdog_silence_s` | 300 | quiet time before the silence watchdog looks |
+| `watchdog_silence_s` | 600 | quiet time before the silence watchdog looks |
 
 ## Retune and silence watchdogs
 

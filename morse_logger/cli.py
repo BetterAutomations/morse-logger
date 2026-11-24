@@ -969,6 +969,9 @@ def _show_rec(rec, args):
     if c is not None:
         tags += f" coh={c:g}" if isinstance(c, float) else f" coh={c}"
     text = rec.get("text") if args.raw else (rec.get("text_xlated") or rec.get("text"))
+    if getattr(args, "fldigi_debug", False):
+        raw = (rec.get("text") or "").replace("\n", " ")
+        print(f"  fldigi> {raw}", flush=True)
     print(f"{when}  [{tags}]  {text}", flush=True)
 
 
@@ -1044,7 +1047,7 @@ def cmd_tail(args):
     day = args.date or time.strftime("%Y-%m-%d")
     args.min_quality = pct_arg(args.min_quality, "min-quality")
     args.min_coherence = pct_arg(args.min_coherence, "min-coherence")
-    by_jsonl = args.raw or args.min_quality is not None \
+    by_jsonl = args.raw or args.fldigi_debug or args.min_quality is not None \
         or args.min_coherence is not None or args.min_chars is not None
 
     if by_jsonl:
@@ -1342,6 +1345,8 @@ def build_parser():
     t.add_argument("--date", help="YYYY-MM-DD")
     t.add_argument("--raw", action="store_true",
                    help="show the untouched decode instead of the glossed text")
+    t.add_argument("--fldigi-debug", action="store_true",
+                   help="print fldigi's raw characters on the line above each entry")
     t.add_argument("--min-quality", type=float, metavar="Q",
                    help="only lines with q >= Q (reads morse.jsonl)")
     t.add_argument("--min-coherence", type=float, metavar="C",

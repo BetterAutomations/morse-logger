@@ -16,7 +16,7 @@ DEFAULT_CONFIG = {
     "tone_hz": 1500,
     "wpm": 20,
     "farnsworth_wpm": 0,
-    "bandwidth_hz": 150,
+    "bandwidth_hz": 250,
     "matched_filter": True,
     "xmlrpc_port": 7362,
     "dial_mhz": None,
