@@ -1,9 +1,18 @@
 # morse-logger — Morse (CW) logger
 
-* Lightweight wrapper for fldigi. Listens to an audio input, decodes Morse
-code and files every transmission into a timestamped log.
-* Works with a virtual audio cable (WebSDR, SDR software, another computer)
-and with real hardware (receiver line-out into a USB sound card).
+* Lightweight command-line wrapper for fldigi for unattended recording of
+CW conversations.
+* Listens to an audio input, decodes Morse code and files every transmission
+into a timestamped log.
+* Supports any audio source — WebSDR, RTL-SDR, or a receiver's line out
+* No GUI required
+* Tunes and measures speed by itself, then keeps them right while you sleep
+* Tells you why it isn't working: level in dBFS, clipping, digital silence,
+stale directories
+* Diagnostics for optimal copy (decoding)
+* Writes a searchable record: timestamped text, JSONL, and SQLite with
+frequency, quality, tone and speed
+* Fully offline installer, requires no network to install and use
 * Optional abbreviation expansion (e.g. TU shows as 'thank you[TU]' in logs)
 * Optional automatic retuning of the audio signal to isolate the best signal
 * Optional automatic detection of word count (WPM) for coherent logging
@@ -14,6 +23,9 @@ SU9300 (released in 2008).
 
 Requires Ubuntu 26.04 LTS. (Coming soon: A Flatpak for more distros and Ubuntu
 versions.)
+
+Built with AI, so there might be bugs. The name 'cw-logger' was already taken,
+so it is called morse-logger :-)
 
 ## Quick start
 
