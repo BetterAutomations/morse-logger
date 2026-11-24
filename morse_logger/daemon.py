@@ -405,7 +405,7 @@ class Runner:
                 if getattr(self, "reload_requested", False):
                     self.reload_requested = False
                     self.apply_reload()
-                if not self.eng.healthy():
+                if self.eng is None or not self.eng.healthy():
                     self.say("fldigi is not responding - restarting")
                     self._restart()
                     continue

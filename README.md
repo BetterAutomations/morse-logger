@@ -22,8 +22,9 @@ decoder is still in progress.)
 * Automatic CPU detection for slower computers such as an Intel Core 2 Duo
 SU9300 (released in 2008).
 
-Requires Ubuntu 26.04 LTS. (Coming soon: A Flatpak for more distros and Ubuntu
-versions.)
+Requires Ubuntu 26.04 LTS for the offline installer. On other distributions use
+the Flatpak in [`flatpak/`](flatpak/README.md), which also works offline
+(single-file bundle or a USB repository).
 
 Built with AI, so there might be bugs. The name 'cw-logger' was already taken,
 so it is called morse-logger :-)

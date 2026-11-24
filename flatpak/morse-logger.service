@@ -1,0 +1,21 @@
+[Unit]
+Description=morse-logger CW decoder (Flatpak)
+Documentation=https://github.com/cdevidal/morse-logger
+# a sound server must be up before the cable can be created
+After=pipewire-pulse.service pulseaudio.service graphical-session.target
+
+[Service]
+Type=simple
+# The daemon must run in the foreground: the Flatpak sandbox is torn down when
+# its main process exits, so 'morse-logger start' (which detaches) does not
+# survive here. 'run' keeps the sandbox alive for the life of the unit.
+ExecStart=/usr/bin/flatpak run --command=morse-logger io.github.cdevidal.MorseLogger run
+Restart=always
+RestartSec=5
+
+# fldigi needs an X display. On a desktop the session display is enough; on a
+# headless machine run an Xvfb and point at it:
+#Environment=DISPLAY=:99
+
+[Install]
+WantedBy=default.target

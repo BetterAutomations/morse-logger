@@ -1,0 +1,101 @@
+# Flatpak manifest for morse-logger.
+#
+# NOT BUILT OR TESTED YET: flatpak-builder was not available when this was
+# written, and the modules below (especially pulseaudio's pactl and fldigi)
+# usually need a round of dependency fixing on first build. See README.md in
+# this directory for how to run it and what to expect.
+app-id: io.github.cdevidal.MorseLogger
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: morse-logger
+
+finish-args:
+  - --share=ipc
+  - --socket=pulseaudio          # the whole point: talk to the host's sound server
+  - --socket=fallback-x11        # fldigi needs a display; Xvfb is not in the runtime
+  - --socket=wayland
+  - --device=all                 # RTL-SDR USB access without udev rules in the sandbox
+  - --persist=morse-logger       # ~/morse-logger inside the sandbox survives updates
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.a'
+  - '*.la'
+
+modules:
+  - name: fltk
+    buildsystem: autotools
+    config-opts:
+      - --enable-shared
+      - --enable-threads
+      - --enable-xft
+      - --enable-xinerama
+      - --disable-gl
+    sources:
+      - type: archive
+        url: https://github.com/fltk/fltk/releases/download/release-1.3.11/fltk-1.3.11-source.tar.bz2
+        sha256: ca2e144e5f89173cd094cc273940d56230b1bf613083a0792e6406dc191cd99f
+
+  - name: portaudio
+    # fldigi's configure requires it even though our audio arrives over Pulse
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+    sources:
+      - type: archive
+        url: http://files.portaudio.com/archives/pa_stable_v190700_20210406.tgz
+        sha256: 47efbf42c77c19a05d22e627d42873e991ec0c1357219c0d74ce6a2948cb2def
+
+  - name: fldigi
+    buildsystem: autotools
+    config-opts:
+      - --disable-dependency-tracking
+      - --with-pulseaudio
+    sources:
+      - type: archive
+        url: https://archive.ubuntu.com/ubuntu/pool/universe/f/fldigi/fldigi_4.2.10.orig.tar.gz
+        sha256: e08f894ac0f9d78ddc520f701e20ecb319dec5a7f8d444d77edd51d96e16a85d
+
+  - name: libusb
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+      - --disable-udev
+    sources:
+      - type: archive
+        url: https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.tar.bz2
+        sha256: ffaa41d741a8a3bee244ac8e54a72ea05bf2879663c098c82fc5757853441575
+
+  - name: rtl-sdr
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DDETACH_KERNEL_DRIVER=ON
+    sources:
+      - type: archive
+        url: https://github.com/osmocom/rtl-sdr/archive/refs/tags/v2.0.2.tar.gz
+        sha256: d69943eb32df742bc38a00ce6615e41250fd57851174e5ff916ec31e9e9e68e9
+
+  - name: morse-logger
+    buildsystem: simple
+    build-commands:
+      - install -d /app/lib/morse-logger
+      - cp -r morse_logger /app/lib/morse-logger/
+      - install -Dm755 flatpak/morse-logger.sh /app/bin/morse-logger
+      - install -Dm644 README.md /app/share/doc/morse-logger/README.md
+      - install -Dm644 docs/DESIGN.md /app/share/doc/morse-logger/DESIGN.md
+      - install -Dm644 docs/HARDWARE-TESTS.md /app/share/doc/morse-logger/HARDWARE-TESTS.md
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - bundle
+          - runtime
+          - test_recordings
+          - .git
+          - build-dir
+          - repo
+          - .flatpak-builder
+          - __pycache__

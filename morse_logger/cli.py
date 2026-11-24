@@ -875,8 +875,21 @@ def cmd_status(args):
         print(json.dumps(st or {"running": False}, indent=2))
         return 0
     if not alive(pid) or not st:
-        print("morse-logger is not running")
-        return 1
+        # Inside a sandbox (Flatpak, container) the daemon runs in a different pid
+        # namespace, so its pid means nothing here. A status.json written moments
+        # ago is better evidence than a pid we cannot see.
+        path = os.path.join(cfg["_home"], "run", "status.json")
+        age = None
+        try:
+            age = time.time() - os.path.getmtime(path)
+        except OSError:
+            pass
+        if st and age is not None and age < 20:
+            print(f"note: the daemon's pid is not visible in this namespace; "
+                  f"status.json is {age:.0f}s old, so it is running")
+        else:
+            print("morse-logger is not running")
+            return 1
     fl = st.get("fldigi", {})
     print(f"morse-logger {__version__} - RUNNING  pid {st['pid']}  uptime {fmt_uptime(st['uptime_s'])}")
     speed = st.get("wpm")
