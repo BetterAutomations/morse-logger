@@ -178,6 +178,12 @@ class Runner:
         self.eng.rpc.set_carrier(best["tone_hz"])
         hz, q, _tried = fldigi.refine_carrier(self.eng.rpc, best["tone_hz"], log=self.say)
         self.cfg["tone_hz"] = hz
+        # keep config.json in step with the live decoder, or the next start and
+        # every separate verb (wpm, scan) work from a stale pitch
+        try:
+            logger.save_config(self.cfg)
+        except Exception:
+            pass
         self.say(f"autotune: CW tone {hz} Hz "
                  f"(steady in {int(best['stability'] * 100)}% of windows, quality {q})")
         return best
