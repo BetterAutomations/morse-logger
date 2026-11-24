@@ -874,10 +874,13 @@ def cmd_status(args):
     note = ""
     if meas and (speed is None or abs(meas - speed) >= 0.5):
         note = f"  (last measured {meas:g} WPM {ago}s ago)"
-    print(f"  decoder   fldigi pid {fl.get('pid')}  modem {fl.get('modem')}  "
-          f"tone {fl.get('tone_hz')} Hz  speed {speed:g} WPM  "
-          f"{'OK' if fl.get('running') else 'NOT RESPONDING'}{note}")
-    print(f"  signal    quality {fl.get('quality')}")
+    health = "OK" if fl.get("running") else "NOT RESPONDING"
+    print(f"  decoder   fldigi pid {fl.get('pid')}  {health}  "
+          f"modem {fl.get('modem')}  tone {fl.get('tone_hz')} Hz  "
+          f"speed {speed:g} WPM{note}")
+    q = fl.get("quality")
+    print(f"  signal    quality {q:.1f}" if isinstance(q, (int, float))
+          else "  signal    quality -")
     if st.get("restarts", 0) > 5:
         print(f"  problem   decoder restarted {st['restarts']}x - nothing is being "
               f"logged; see run/morse-logger.out")
@@ -907,6 +910,15 @@ def cmd_status(args):
             nums.append(f"coherence={st['last_coherence']}")
         print(f"  last      {st['last_line']}" + (f"  ({', '.join(nums)})" if nums else ""))
     print(f"  logs      {st['log_dir']}")
+    print("  note      OK = the decoder process is running and answered "
+          "XML-RPC at this\n"
+          "            status write (every 2 s). It is alive, but that says "
+          "nothing about the\n"
+          "            signal: check 'signal' for quality. NOT RESPONDING = the "
+          "process exists\n"
+          "            but does not answer, and the daemon is restarting it. No "
+          "decoder line\n"
+          "            at all = nothing is running.")
     return 0
 
 

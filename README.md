@@ -631,9 +631,16 @@ adds the last measurement when it disagrees with the setting - so a stale speed 
 visible rather than hidden:
 
 ```
-  decoder   fldigi pid 1627546  modem CW  tone 610 Hz  speed 22 WPM  OK
-  decoder   fldigi pid 1627546  modem CW  tone 610 Hz  speed 22 WPM  OK  (last measured 17 WPM 96s ago)
+  decoder   fldigi pid 1627546  OK  modem CW  tone 610 Hz  speed 22 WPM
+  decoder   fldigi pid 1627546  OK  modem CW  tone 610 Hz  speed 22 WPM  (last measured 17 WPM 96s ago)
 ```
+
+The health word sits immediately after the pid, and a `note` line at the end of
+the status block spells out what it means: **OK** = the process is alive *and*
+answered XML-RPC at this status write (every 2 s) - it says nothing about the
+signal, so look at `signal` for quality. **NOT RESPONDING** = the process exists
+but does not answer, and the daemon is restarting it. **No decoder line at all**
+= nothing is running.
 
 It also reports `speed wd  N speed correction(s), decoder now X WPM` when the
 watchdog has acted.
