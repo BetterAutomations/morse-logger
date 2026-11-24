@@ -56,7 +56,7 @@ DEFAULT_CONFIG = {
     "speed_watchdog": True,
     "wpm_auto_on_start": True,
     "watchdog_silence_s": 600,
-    "speed_watchdog_interval_s": 240,
+    "speed_watchdog_interval_s": 60,
     "speed_watchdog_change": 0.2,
     "speed_watchdog_max_restarts": 4,
     "speed_watchdog_min_confidence": 0.5,
@@ -109,7 +109,7 @@ def load_config(home=None, create=True):
     score, profile = _cpu.detect(home)
     cfg["_cpu_score"] = score
     cfg["_cpu_profile"] = profile
-    scale = {"fast": 1.0, "medium": 1.5, "slow": 2.0}[profile]
+    scale = {"fast": 1.0, "medium": 2.0, "slow": 4.0}[profile]
     if profile == "slow":
         # cheaper scans and a sleepier loop: the two things that actually cost
         # time on a 1.2 GHz dual core, beyond the intervals above

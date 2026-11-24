@@ -663,13 +663,16 @@ the score in `run/cpu.json`, so it is measured once and never again. Model names
 are not used, because a VM reports the host CPU and a throttled laptop runs far
 below its rating. **Fast is the default**; the profile only moves when the
 benchmark says this machine is slow. `morse-logger status` shows the result:
-`cpu  profile fast (measured 0.030s), speed check every 240s`.
+`cpu  profile fast (measured 0.030s), speed check every 60s`.
 
 | profile | score | speed check | cooldown | silence | scan workspace |
 |---|---|---|---|---|---|
-| `fast` (default) | ≤ 0.055 s | 240 s | 600 s | 600 s | 25 Hz, refine 10 Hz |
-| `medium` | ≤ 0.100 s | 360 s | 900 s | 900 s | 50 Hz, refine 20 Hz |
-| `slow` | > 0.100 s | 480 s | 1200 s | 1200 s | 50 Hz, refine 20 Hz |
+| `fast` (default) | ≤ 0.055 s | 60 s | 600 s | 600 s | 25 Hz, refine 10 Hz |
+| `medium` | ≤ 0.100 s | 120 s | 1200 s | 1200 s | 50 Hz, refine 20 Hz |
+| `slow` | > 0.100 s | 240 s | 2400 s | 2400 s | 50 Hz, refine 20 Hz |
+
+Each profile is twice as gentle as the one above it, so the speed check runs
+every minute on a modern machine and every four minutes on a 1.2 GHz dual core.
 
 A Core Ultra 9 measures ~0.030 s (fast). An old Core 2 at full clock lands near
 0.08 s (medium); a 1.2 GHz Core 2 Duo SU9300 or an Atom is 0.10 s or worse and
