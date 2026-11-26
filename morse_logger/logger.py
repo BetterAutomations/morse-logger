@@ -47,6 +47,10 @@ DEFAULT_CONFIG = {
     "min_chars": 2,
     "repeat_window_s": 120,
     "notify": True,          # desktop notification for repair events
+    "level_auto": False,     # daemon trims the source volume when it drifts
+    "level_target_db": -14.0,
+    "level_max_step_db": 6.0,
+    "level_auto_interval_s": 20,
     # 0 keeps everything; `prune --days N` or this setting turns it on
     "retention_days": 0,
     "log_dir": None,

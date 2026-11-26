@@ -80,6 +80,7 @@ class Runner:
         self.last_retune = 0.0
         self.last_speed_check = 0.0
         self.last_silence_check = 0.0
+        self.level_dbfs = None
         self.speed_restarts = 0
         self.repairs = 0
         self.last_repair = None
@@ -135,6 +136,7 @@ class Runner:
             "restarts": self.restarts,
             "last_quality": getattr(self, "last_q", None),
             "last_coherence": getattr(self, "last_coh", None),
+            "level_dbfs": getattr(self, "level_dbfs", None),
             "watchdog_retunes": getattr(self, "retunes", 0),
             "speed_restarts": getattr(self, "speed_restarts", 0),
             "repairs": getattr(self, "repairs", 0),
@@ -409,6 +411,34 @@ class Runner:
                          f"--source <other>_cable.monitor', or turn that program's "
                          f"own routing watch off. Leaving it alone for 5 minutes.")
 
+    def check_level(self, now):
+        """Trim the source volume toward the target, when level_auto is on."""
+        cfg = self.cfg
+        if not cfg.get("level_auto"):
+            return
+        if now - getattr(self, "last_level_check", 0) < logger.scaled(
+                cfg, "level_auto_interval_s", 20):
+            return
+        self.last_level_check = now
+        src = cfg.get("input_device") or pulse.SOURCE
+        try:
+            if not pulse.source_exists(src):
+                return
+            db = pulse.peak_dbfs(pulse.capture_samples(1.0, rate=8000, source=src))
+            self.level_dbfs = db
+            target = float(cfg.get("level_target_db", -14.0))
+            plan = pulse.trim_volume(
+                db, pulse.source_volume(src), target_db=target,
+                max_step_db=float(cfg.get("level_max_step_db", 6.0)))
+            if plan["action"] == "none":
+                return
+            if pulse.set_source_volume(src, plan["percent"]):
+                verb = "lowered" if plan["action"] == "lower" else "raised"
+                self.say(f"level: {db} dBFS was outside {target:g} dBFS - "
+                         f"volume {verb} to {plan['percent']:.0f}%")
+        except Exception as exc:               # never kill the loop over a level
+            self.say(f"level watch: {exc}")
+
     def check_silence(self, now):
         """Signal present but nothing decoded for a long time = probably detuned.
 
@@ -522,6 +552,7 @@ class Runner:
                     self.last_route_check = now
                     self._route_watch()
                 self.check_cable(now)
+                self.check_level(now)
                 if now - last_status > 2:
                     self.write_status()
                     last_status = now

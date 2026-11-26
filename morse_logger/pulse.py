@@ -8,7 +8,9 @@ output) without touching the system default devices.
                                    \--> loopback --> speakers (optional, so you
                                         can still hear the WebSDR)
 """
+import array
 import json
+import math
 import os
 import re
 import shutil
@@ -526,6 +528,68 @@ def capture_samples(seconds=4.0, rate=8000, source=SOURCE, timeout=None):
         except subprocess.TimeoutExpired:
             p.kill()
     return data or b""
+
+
+def peak_dbfs(data):
+    """Peak level of s16le audio in dBFS (0 = full scale)."""
+    if not data:
+        return -120.0
+    samples = array.array("h")
+    samples.frombytes(data[: len(data) // 2 * 2])
+    peak = max((abs(v) for v in samples), default=0)
+    return round(20 * math.log10(max(1, peak) / 32768.0), 1)
+
+
+def source_volume(name=SOURCE):
+    """Current source volume as a percentage, or None if it cannot be read."""
+    p = _run(["pactl", "get-source-volume", name], check=False)
+    if p.returncode != 0:
+        return None
+    text = p.stdout.decode(errors="replace")
+    m = re.search(r"front-left: \d+ / (\d+)%", text)
+    if not m:
+        m = re.search(r"/ +(\d+)%", text)
+    return float(m.group(1)) if m else None
+
+
+def set_source_volume(name, percent):
+    """Set a source's volume; clamped to 0-100% so we never amplify past unity."""
+    pct = max(0, min(100, int(round(percent))))
+    p = _run(["pactl", "set-source-volume", name, f"{pct}%"], check=False)
+    return p.returncode == 0
+
+
+def trim_volume(measured_db, current_percent, target_db=-14.0,
+                max_step_db=6.0, deadband_db=2.0):
+    """Work out a new volume percentage to move a measured level toward target.
+
+    Pure arithmetic, so it is testable without a sound server. The measured
+    level already includes the current volume, so the correction is a plain
+    ratio in dB, capped at `max_step_db` so repeated calls converge instead of
+    overshooting on a noisy measurement.
+    """
+    if measured_db is None or current_percent is None:
+        return {"action": "none", "percent": None, "delta_db": 0.0,
+                "reason": "level or volume unknown"}
+    if measured_db <= -80.0:
+        return {"action": "none", "percent": current_percent, "delta_db": 0.0,
+                "reason": "digital silence - raising the volume would just "
+                          "amplify noise"}
+    delta = target_db - measured_db
+    if abs(delta) <= deadband_db:
+        return {"action": "none", "percent": current_percent,
+                "delta_db": round(delta, 1), "reason": "within tolerance"}
+    step = max(-max_step_db, min(max_step_db, delta))
+    percent = current_percent * (10 ** (step / 20.0))
+    clamped = max(0.0, min(100.0, percent))
+    if abs(clamped - current_percent) < 1.0:
+        return {"action": "none", "percent": current_percent,
+                "delta_db": round(delta, 1),
+                "reason": ("already at 100% - raise the volume in the source "
+                           "application" if step > 0 else "already at 0%")}
+    return {"action": "raise" if step > 0 else "lower",
+            "percent": round(clamped, 1), "delta_db": round(delta, 1),
+            "reason": "outside tolerance"}
 
 
 def cable_status():

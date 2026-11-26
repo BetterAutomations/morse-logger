@@ -1323,6 +1323,59 @@ def cmd_config(args):
     return 0
 
 
+def cmd_level(args):
+    """Measure the cable's input level and trim the source volume toward target."""
+    cfg = logger.load_config(create=False)
+    if getattr(args, "auto", False) or getattr(args, "no_auto", False):
+        cfg["level_auto"] = bool(args.auto)
+        logger.save_config(cfg)
+        print(f"level auto-trim {'on' if args.auto else 'off'}"
+              + (f" - the daemon re-checks every "
+                 f"{logger.scaled(cfg, 'level_auto_interval_s', 20):.0f}s"
+                 if args.auto else ""))
+        if not args.set:
+            return 0
+    target = args.target if args.target is not None else float(
+        cfg.get("level_target_db", -14.0))
+    step_db = float(cfg.get("level_max_step_db", 6.0))
+    src = cfg.get("input_device") or pulse.SOURCE
+    if not pulse.source_exists(src):
+        print(f"no capture source {src} - run 'morse-logger cable up' first")
+        return 2
+    sample = pulse.capture_samples(args.seconds, rate=8000, source=src)
+    if not sample:
+        print(f"could not capture audio from {src}")
+        return 2
+    db = pulse.peak_dbfs(sample)
+    vol = pulse.source_volume(src)
+    verdict = ("too quiet" if db < -20 else "clipping" if db > -10 else "ok")
+    if vol is None:
+        print(f"level: {db} dBFS  volume unknown  target {target:g} dBFS  [{verdict}]")
+    else:
+        print(f"level: {db} dBFS  volume {vol:.0f}%  target {target:g} dBFS  [{verdict}]")
+    if db <= -80:
+        print("  digital silence - the source is delivering zeros; fix the "
+              "source, do not raise the volume")
+        return 0
+    plan = pulse.trim_volume(db, vol, target_db=target, max_step_db=step_db)
+    if plan["action"] == "none":
+        print(f"  {plan['reason']}")
+        return 0
+    print(f"  {plan['action']} by {abs(plan['delta_db']):.1f} dB -> "
+          f"{plan['percent']:.0f}%")
+    if args.dry_run:
+        print("  dry run - nothing was changed")
+        return 0
+    if not args.set:
+        print("  nothing changed - add --set to apply it")
+        return 0
+    if not pulse.set_source_volume(src, plan["percent"]):
+        print(f"  could not set the volume on {src}")
+        return 2
+    print(f"  volume set to {plan['percent']:.0f}% - re-run 'level' to confirm")
+    return 0
+
+
 def cmd_logs(args):
     cfg = logger.load_config(create=False)
     print(cfg["log_dir"])
@@ -1535,6 +1588,19 @@ def build_parser():
     pr.add_argument("--force", action="store_true",
                     help="run even while the logger is up (it holds the JSONL open)")
     pr.set_defaults(func=cmd_prune)
+
+    lv = sub.add_parser("level", help="measure the cable level and trim the source volume")
+    lv.add_argument("--set", action="store_true", help="apply the correction")
+    lv.add_argument("--dry-run", action="store_true",
+                    help="say what would change, change nothing")
+    lv.add_argument("--target", type=float, metavar="DBFS",
+                    help="target peak level (default: level_target_db, -14)")
+    lv.add_argument("--seconds", type=float, default=1.0,
+                    help="how much audio to measure (1 s)")
+    lv.add_argument("--auto", action="store_true",
+                    help="let the daemon trim it when it drifts")
+    lv.add_argument("--no-auto", action="store_true", help="stop the automatic trim")
+    lv.set_defaults(func=cmd_level)
     return p
 
 

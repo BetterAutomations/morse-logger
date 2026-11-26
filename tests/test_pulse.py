@@ -254,5 +254,68 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(known, {"1"})
 
 
+class VolumeTest(unittest.TestCase):
+    def test_peak_dbfs(self):
+        self.assertEqual(pulse.peak_dbfs(b""), -120.0)
+        self.assertAlmostEqual(pulse.peak_dbfs(b"\xff\x7f"), 0.0, places=1)
+        self.assertAlmostEqual(pulse.peak_dbfs(b"\x00\x40"), -6.0, places=1)
+
+    def test_source_volume_is_parsed(self):
+        out = b"Volume: front-left: 32768 /  50% / -18.06 dB,   front-right: 32768 /  50%\n"
+        with mock.patch.object(pulse, "_run",
+                               return_value=mock.Mock(returncode=0, stdout=out)):
+            self.assertEqual(pulse.source_volume("src"), 50.0)
+
+    def test_unreadable_volume(self):
+        with mock.patch.object(pulse, "_run",
+                               return_value=mock.Mock(returncode=0, stdout=b"nonsense")):
+            self.assertIsNone(pulse.source_volume("src"))
+        with mock.patch.object(pulse, "_run",
+                               return_value=mock.Mock(returncode=1, stdout=b"")):
+            self.assertIsNone(pulse.source_volume("src"))
+
+    def test_set_volume_never_amplifies_past_unity(self):
+        calls = []
+        with mock.patch.object(pulse, "_run",
+                               side_effect=lambda args, **kw: calls.append(args)
+                               or mock.Mock(returncode=0)):
+            self.assertTrue(pulse.set_source_volume("src", 150))
+            self.assertTrue(pulse.set_source_volume("src", -5))
+        self.assertEqual(calls[0][-1], "100%")
+        self.assertEqual(calls[1][-1], "0%")
+
+
+class TrimVolumeTest(unittest.TestCase):
+    def test_within_tolerance_is_left_alone(self):
+        plan = pulse.trim_volume(-14.5, 80)
+        self.assertEqual(plan["action"], "none")
+        self.assertEqual(plan["reason"], "within tolerance")
+
+    def test_too_loud_lowers_by_at_most_six_db(self):
+        plan = pulse.trim_volume(-2.0, 100, target_db=-14.0, max_step_db=6.0)
+        self.assertEqual(plan["action"], "lower")
+        self.assertAlmostEqual(plan["percent"], 50.1, delta=0.2)
+        self.assertAlmostEqual(plan["delta_db"], -12.0)
+
+    def test_too_quiet_raises(self):
+        plan = pulse.trim_volume(-30.0, 50, target_db=-14.0, max_step_db=6.0)
+        self.assertEqual(plan["action"], "raise")
+        self.assertGreater(plan["percent"], 50)
+
+    def test_digital_silence_is_never_amplified(self):
+        plan = pulse.trim_volume(-120.0, 50)
+        self.assertEqual(plan["action"], "none")
+        self.assertIn("silence", plan["reason"])
+
+    def test_already_at_100_cannot_raise(self):
+        plan = pulse.trim_volume(-30.0, 100, target_db=-14.0, max_step_db=6.0)
+        self.assertEqual(plan["action"], "none")
+        self.assertIn("100%", plan["reason"])
+
+    def test_unknown_values(self):
+        self.assertEqual(pulse.trim_volume(None, 50)["action"], "none")
+        self.assertEqual(pulse.trim_volume(-14.0, None)["action"], "none")
+
+
 if __name__ == "__main__":
     unittest.main()

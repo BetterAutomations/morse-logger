@@ -262,6 +262,54 @@ class CableWatchTest(RunnerCase):
         self.assertEqual(self.runner.last_cable_check, 140)
 
 
+class LevelWatchTest(RunnerCase):
+    def test_off_by_default(self):
+        with mock.patch.object(daemon.pulse, "capture_samples") as capture:
+            self.runner.check_level(1000)
+        capture.assert_not_called()
+
+    def test_a_drifted_level_is_trimmed(self):
+        self.runner.cfg.update({"level_auto": True, "level_target_db": -14.0,
+                                "level_max_step_db": 6.0,
+                                "level_auto_interval_s": 20})
+        with mock.patch.object(daemon.pulse, "source_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "capture_samples",
+                                  return_value=b"\x00\x40"), \
+                mock.patch.object(daemon.pulse, "peak_dbfs", return_value=-2.0), \
+                mock.patch.object(daemon.pulse, "source_volume",
+                                  return_value=100.0), \
+                mock.patch.object(daemon.pulse, "set_source_volume",
+                                  return_value=True) as setv, \
+                mock.patch.object(self.runner, "say"):
+            self.runner.check_level(1000)
+        setv.assert_called_once()
+        self.assertEqual(self.runner.level_dbfs, -2.0)
+
+    def test_a_good_level_is_left_alone(self):
+        self.runner.cfg.update({"level_auto": True, "level_auto_interval_s": 20})
+        with mock.patch.object(daemon.pulse, "source_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "capture_samples",
+                                  return_value=b"\x00\x40"), \
+                mock.patch.object(daemon.pulse, "peak_dbfs", return_value=-14.0), \
+                mock.patch.object(daemon.pulse, "source_volume",
+                                  return_value=80.0), \
+                mock.patch.object(daemon.pulse, "set_source_volume") as setv:
+            self.runner.check_level(1000)
+        setv.assert_not_called()
+
+    def test_the_check_is_rate_limited(self):
+        self.runner.cfg.update({"level_auto": True, "level_auto_interval_s": 20})
+        with mock.patch.object(daemon.pulse, "source_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "capture_samples",
+                                  return_value=b"\x00\x40") as capture, \
+                mock.patch.object(daemon.pulse, "peak_dbfs", return_value=-14.0), \
+                mock.patch.object(daemon.pulse, "source_volume",
+                                  return_value=80.0):
+            self.runner.check_level(1000)
+            self.runner.check_level(1010)
+        self.assertEqual(capture.call_count, 1)
+
+
 class RouteFlapTest(RunnerCase):
     """Another logger moving the same stream back must not cause a tug of war."""
 

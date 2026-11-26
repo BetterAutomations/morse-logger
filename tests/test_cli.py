@@ -351,5 +351,93 @@ class PruneCommandTest(unittest.TestCase):
             self.assertEqual(self.prune(days=7, force=True), 0)
 
 
+def level_args(**kw):
+    base = dict(set=False, dry_run=False, target=None, seconds=1.0,
+                auto=False, no_auto=False)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+class LevelCommandTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = {"_home": self.tmp.name,
+                    "input_device": "morse-logger_cable_src",
+                    "level_target_db": -14.0, "level_max_step_db": 6.0,
+                    "level_auto_interval_s": 20}
+        self.load = mock.patch.object(cli.logger, "load_config",
+                                      return_value=self.cfg)
+        self.load.start()
+        self.save = mock.patch.object(cli.logger, "save_config")
+        self.save_mock = self.save.start()
+        self.out = mock.patch("sys.stdout", new_callable=io.StringIO)
+        self.out_mock = self.out.start()
+        self.exists = mock.patch.object(cli.pulse, "source_exists",
+                                        return_value=True)
+        self.exists.start()
+        self.capture = mock.patch.object(cli.pulse, "capture_samples",
+                                         return_value=b"\x00\x40")
+        self.capture.start()
+
+    def tearDown(self):
+        self.capture.stop()
+        self.exists.stop()
+        self.out.stop()
+        self.save.stop()
+        self.load.stop()
+        self.tmp.cleanup()
+
+    def test_ok_level_needs_no_change(self):
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-14.0), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=80.0), \
+                mock.patch.object(cli.pulse, "set_source_volume") as setv:
+            self.assertEqual(cli.cmd_level(level_args()), 0)
+        setv.assert_not_called()
+        self.assertIn("within tolerance", self.out_mock.getvalue())
+        self.assertIn("level: -14.0 dBFS  volume 80%", self.out_mock.getvalue())
+
+    def test_set_applies_a_capped_correction(self):
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-2.0), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=100.0), \
+                mock.patch.object(cli.pulse, "set_source_volume",
+                                  return_value=True) as setv:
+            self.assertEqual(cli.cmd_level(level_args(set=True)), 0)
+        setv.assert_called_once()
+        self.assertIn("volume set to 50%", self.out_mock.getvalue())
+
+    def test_without_set_nothing_changes(self):
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-2.0), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=100.0), \
+                mock.patch.object(cli.pulse, "set_source_volume") as setv:
+            self.assertEqual(cli.cmd_level(level_args()), 0)
+        setv.assert_not_called()
+        self.assertIn("add --set", self.out_mock.getvalue())
+
+    def test_dry_run_changes_nothing(self):
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-2.0), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=100.0), \
+                mock.patch.object(cli.pulse, "set_source_volume") as setv:
+            self.assertEqual(cli.cmd_level(level_args(set=True, dry_run=True)), 0)
+        setv.assert_not_called()
+        self.assertIn("dry run", self.out_mock.getvalue())
+
+    def test_digital_silence_is_reported_not_amplified(self):
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-120.0), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=50.0), \
+                mock.patch.object(cli.pulse, "set_source_volume") as setv:
+            self.assertEqual(cli.cmd_level(level_args(set=True)), 0)
+        setv.assert_not_called()
+        self.assertIn("digital silence", self.out_mock.getvalue())
+
+    def test_missing_source_is_an_error(self):
+        with mock.patch.object(cli.pulse, "source_exists", return_value=False):
+            self.assertEqual(cli.cmd_level(level_args()), 2)
+
+    def test_auto_is_persisted(self):
+        self.assertEqual(cli.cmd_level(level_args(auto=True)), 0)
+        self.assertTrue(self.cfg["level_auto"])
+        self.save_mock.assert_called()
+
+
 if __name__ == "__main__":
     unittest.main()

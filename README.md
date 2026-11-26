@@ -297,6 +297,7 @@ run `morse-logger tune --auto`.
 | `morse-logger translate "TEXT"` | try the CW abbreviation glossary on any text |
 | `morse-logger logs` | show the log directory |
 | `morse-logger prune --days N [--dry-run] [--delete]` | archive (or delete) logs older than N days; off by default |
+| `morse-logger level [--set] [--target DBFS] [--auto]` | measure the cable level and trim the source volume |
 | `morse-logger config [--set key=value]` | show/change settings |
 
 ## Several conversations at once
@@ -534,6 +535,13 @@ tool sets all of them:
 decodes as garbage, because the tops of the marks are flattened and the
 intermodulation lands inside the filter. `morse-logger doctor` flags a cable
 level above -1.5 dBFS for that reason; aim for about -12 dBFS.
+
+`morse-logger level` measures the cable source's peak level (`-14 dBFS` target
+by default), says what it would do, and with `--set` moves the source volume
+toward the target in steps of at most `level_max_step_db` (6 dB). It refuses to
+amplify digital silence and never passes 100%, so it cannot turn up a dead
+stream. `level --auto` lets the daemon repeat that every
+`level_auto_interval_s` (20 s) as the source drifts; `level --no-auto` stops it.
 
 ## Keeping junk out of the log
 
