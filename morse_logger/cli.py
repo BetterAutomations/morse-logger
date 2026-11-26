@@ -96,6 +96,24 @@ def cmd_doctor(args):
                  "blacklist dvb_usb_rtl28xxu)"))
     print("\nAudio into the cable")
     try:
+        # The echo trap: our cable monitor looped to the speakers more than
+        # once (or at all, when monitoring is supposed to be off). One such
+        # loopback is the normal way you hear the cable; two copies of the
+        # same audio ~100 ms apart is what gets reported as an echo.
+        strays = pulse.monitor_loops_to_default()
+        if len(strays) > 1:
+            print(f"  [!!] {len(strays)} monitor loopbacks play the cable into your "
+                  f"speakers (modules {', '.join(strays)}) - that is the doubled "
+                  f"audio/echo; remove them with: morse-logger cable up "
+                  f"{'--monitor' if cfg.get('monitor') else '--no-monitor'}")
+        elif strays and not cfg.get("monitor"):
+            print(f"  [!!] monitor loopback {strays[0]} plays the cable into your "
+                  f"speakers although monitoring is off - remove it with: "
+                  f"morse-logger cable up --no-monitor")
+        elif strays:
+            print("  [ok] one monitor loopback into your speakers (monitoring on)")
+        else:
+            print("  [ok] no monitor loopback into your speakers")
         rows = [r for r in pulse.sink_input_details()
                 if r.get("sink_name") == pulse.SINK]
         if not rows:
@@ -170,21 +188,36 @@ def cmd_doctor(args):
     return 0 if ok else 1
 
 
+def _want_monitor(args, cfg):
+    """Tri-state: --monitor, --no-monitor, or whatever the config says.
+
+    A bare `cable up` must not re-enable monitoring: it runs from helper
+    scripts and restore steps too, where an unexpected loopback is exactly
+    the doubled-audio (echo) bug. Only an explicit flag changes anything.
+    """
+    if getattr(args, "no_monitor", False):
+        return False
+    if getattr(args, "monitor", False):
+        return True
+    return bool(cfg.get("monitor", True))
+
+
 def cmd_cable(args):
     cfg = logger.load_config()
     sf = os.path.join(cfg["_home"], "run", "pulse-modules.json")
     if args.action == "up":
-        if not args.no_monitor and pulse._tap_active():
+        want = _want_monitor(args, cfg)
+        if want and pulse._tap_active():
             print("the copy loop is on (your speakers -> the cable), so monitoring "
                   "would feed the cable back into your speakers.")
             print("pick one: 'morse-logger route-audio --stop-copy' to remove it, "
                   "or 'morse-logger cable up --no-monitor'.")
             return 2
-        removed = pulse.stop_monitor(state_file=sf) if args.no_monitor else []
+        removed = [] if want else pulse.stop_monitor(state_file=sf)
         channels = max(1, int(getattr(args, "channels", 1) or 1))
         done = {}
         for ch in range(1, channels + 1):
-            done = pulse.ensure_cable(state_file=sf, monitor=(not args.no_monitor and ch == 1),
+            done = pulse.ensure_cable(state_file=sf, monitor=(want and ch == 1),
                                       channel=ch)
             print(f"virtual cable {ch}: sink '{pulse.sink_name(ch)}' -> "
                   f"source '{pulse.source_name(ch)}'")
@@ -197,11 +230,14 @@ def cmd_cable(args):
             print("monitoring enabled: you still hear the cable output on your speakers")
         if done["sink"]:
             print("(created just now)")
-        # Persist the choice: `cable up --no-monitor` used to change only the
-        # live state, so a reboot put monitoring back while `start --no-monitor`
-        # survived. Same request, same result.
-        cfg["monitor"] = not args.no_monitor
-        logger.save_config(cfg)
+        # Persist only what was asked. `cable up --no-monitor` used to change
+        # only the live state, so a reboot put monitoring back while
+        # `start --no-monitor` survived; and persisting on every bare `cable
+        # up` overwrote a saved "off" with True.
+        if bool(cfg.get("monitor", True)) != want:
+            cfg["monitor"] = want
+            logger.save_config(cfg)
+            print(f"config: monitor={str(want).lower()}")
     elif args.action == "down":
         only = getattr(args, "channels", 1) if args.channels > 1 else None
         removed = pulse.cable_down(state_file=sf, channel=only)
@@ -1418,6 +1454,8 @@ def build_parser():
 
     c = sub.add_parser("cable", help="create/remove/inspect the virtual audio cable")
     c.add_argument("action", choices=["up", "down", "status"])
+    c.add_argument("--monitor", action="store_true",
+                   help="hear the cable on your speakers")
     c.add_argument("--no-monitor", action="store_true",
                    help="do not loop the cable output back to your speakers")
     c.add_argument("--channels", type=int, default=1, metavar="N",

@@ -108,9 +108,25 @@ class TailPathTest(unittest.TestCase):
 def route_args(**kw):
     base = dict(all=False, index=None, copy=False, stop_copy=False,
                 source=None, stop_source=False, list_sources=False,
-                list=False, to=1, channels=1, no_monitor=False)
+                list=False, to=1, channels=1, monitor=False, no_monitor=False)
     base.update(kw)
     return argparse.Namespace(**base)
+
+
+class WantMonitorTest(unittest.TestCase):
+    """Tri-state: flags win, otherwise the saved setting decides."""
+
+    def test_off_flag_wins(self):
+        self.assertFalse(cli._want_monitor(route_args(no_monitor=True),
+                                           {"monitor": True}))
+
+    def test_on_flag_wins(self):
+        self.assertTrue(cli._want_monitor(route_args(monitor=True),
+                                          {"monitor": False}))
+
+    def test_saved_setting_without_flags(self):
+        self.assertFalse(cli._want_monitor(route_args(), {"monitor": False}))
+        self.assertTrue(cli._want_monitor(route_args(), {"monitor": True}))
 
 
 class RoutePersistenceTest(unittest.TestCase):
@@ -182,6 +198,7 @@ class RoutePersistenceTest(unittest.TestCase):
         self.assertFalse(self.saved[-1]["monitor"])
 
     def test_cable_up_with_monitor_persists(self):
+        self.cfg["monitor"] = False
         with mock.patch.object(cli.pulse, "ensure_cable",
                                return_value={"monitor": True, "tap": False,
                                              "sink": False,
@@ -189,8 +206,37 @@ class RoutePersistenceTest(unittest.TestCase):
                 mock.patch.object(cli.pulse, "cable_status",
                                   return_value={"monitor": True}), \
                 mock.patch.object(cli.pulse, "_tap_active", return_value=False):
-            self.assertEqual(cli.cmd_cable(route_args(action="up")), 0)
+            self.assertEqual(cli.cmd_cable(route_args(action="up",
+                                                      monitor=True)), 0)
         self.assertTrue(self.saved[-1]["monitor"])
+
+    def test_bare_cable_up_keeps_the_saved_setting(self):
+        # The bug: a bare `cable up` from a restore step re-enabled and
+        # persisted monitoring, rebuilding the cable->speakers loopback.
+        self.cfg["monitor"] = False
+        with mock.patch.object(cli.pulse, "stop_monitor", return_value=[]), \
+                mock.patch.object(cli.pulse, "ensure_cable",
+                                  return_value={"monitor": False, "tap": False,
+                                                "sink": False,
+                                                "monitor_skipped": False}) as up, \
+                mock.patch.object(cli.pulse, "cable_status",
+                                  return_value={"monitor": False}), \
+                mock.patch.object(cli.pulse, "_tap_active", return_value=False):
+            self.assertEqual(cli.cmd_cable(route_args(action="up")), 0)
+        self.assertFalse(up.call_args.kwargs["monitor"])
+        self.assertEqual(self.saved, [])
+
+    def test_bare_cable_up_does_not_rewrite_an_unchanged_setting(self):
+        self.cfg["monitor"] = True
+        with mock.patch.object(cli.pulse, "ensure_cable",
+                               return_value={"monitor": False, "tap": False,
+                                             "sink": False,
+                                             "monitor_skipped": False}), \
+                mock.patch.object(cli.pulse, "cable_status",
+                                  return_value={"monitor": False}), \
+                mock.patch.object(cli.pulse, "_tap_active", return_value=False):
+            self.assertEqual(cli.cmd_cable(route_args(action="up")), 0)
+        self.assertEqual(self.saved, [])
 
     def test_cable_down_forgets_everything(self):
         self.cfg.update({"monitor": True, "tap": True,

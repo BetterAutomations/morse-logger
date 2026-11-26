@@ -217,6 +217,36 @@ def _monitor_active():
     return False
 
 
+def monitor_loops_to_default():
+    """Module ids of loopbacks playing one of our cable monitors into the
+    default sink, i.e. paths that make the cable audible.
+
+    One such loopback is the normal monitoring path. Two (or one while
+    monitoring is supposed to be off) mean the same audio reaches the
+    speakers by more than one path - the ~100 ms echo users report.
+    Faintly counter-intuitive: a loopback from *another* program's cable
+    monitor into the speakers is not ours, and a feed into the cable is
+    not the trap either.
+    """
+    default = default_sink_name()
+    if not default:
+        return []
+    names = {sink_name(ch) + ".monitor" for ch in (cable_channels() or [1])}
+    out = []
+    for mid, block in _module_blocks():
+        if "module-loopback" not in block:
+            continue
+        src = re.search(r"source=(\S+)", block)
+        snk = re.search(r"sink=(\S+)", block)
+        if not src or not snk:
+            continue
+        if src.group(1) not in names:
+            continue
+        if snk.group(1) == default:
+            out.append(mid)
+    return out
+
+
 def _is_tap_block(block):
     """True only for the speakers -> cable copy loop.
 

@@ -183,6 +183,53 @@ class ModuleTest(unittest.TestCase):
             self.assertIn("pactl", str(ctx.exception))
 
 
+class MonitorLoopsTest(unittest.TestCase):
+    """The echo trap: the cable's own monitor reaching the speakers twice."""
+
+    SPK = "alsa_output.analog-stereo"
+
+    def trap(self, blocks, channels=(1,), default=None):
+        return mock.patch.object(pulse, "_module_blocks", return_value=blocks), \
+               mock.patch.object(pulse, "default_sink_name",
+                                 return_value=self.SPK if default is None else default), \
+               mock.patch.object(pulse, "cable_channels", return_value=list(channels))
+
+    def test_our_monitor_to_the_speakers_is_found(self):
+        a, b, c = self.trap([("7", "Name: module-loopback\n\tArgument: "
+                                   "source=morse-logger_cable.monitor "
+                                   "sink=" + self.SPK)])
+        with a, b, c:
+            self.assertEqual(pulse.monitor_loops_to_default(), ["7"])
+
+    def test_a_feed_into_the_cable_is_not_the_trap(self):
+        a, b, c = self.trap([("8", "Name: module-loopback\n\tArgument: "
+                                   "source=js8call-logger_cable.monitor "
+                                   "sink=morse-logger_cable")])
+        with a, b, c:
+            self.assertEqual(pulse.monitor_loops_to_default(), [])
+
+    def test_another_programs_monitor_is_not_ours(self):
+        a, b, c = self.trap([("9", "Name: module-loopback\n\tArgument: "
+                                   "source=morse-logger_cable_9.monitor "
+                                   "sink=" + self.SPK)])
+        with a, b, c:
+            self.assertEqual(pulse.monitor_loops_to_default(), [])
+
+    def test_a_second_channel_monitor_counts(self):
+        a, b, c = self.trap([("10", "Name: module-loopback\n\tArgument: "
+                                    "source=morse-logger_cable_2.monitor "
+                                    "sink=" + self.SPK)], channels=(1, 2))
+        with a, b, c:
+            self.assertEqual(pulse.monitor_loops_to_default(), ["10"])
+
+    def test_no_default_sink_means_nothing_to_check(self):
+        a, b, c = self.trap([("7", "Name: module-loopback\n\tArgument: "
+                                   "source=morse-logger_cable.monitor "
+                                   "sink=" + self.SPK)], default="")
+        with a, b, c:
+            self.assertEqual(pulse.monitor_loops_to_default(), [])
+
+
 class SourceNamesTest(unittest.TestCase):
     def test_monitors_and_our_cables_are_filtered_out(self):
         rows = ("1\talsa_input.usb-mic\tmodule-alsa-card.c\n"
