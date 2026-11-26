@@ -170,10 +170,6 @@ python3 -m unittest discover -s tests -v     # one line per test
 python3 -m unittest tests.test_logger -v     # a single module
 ```
 
-One test is marked as an expected failure: it asserts the rule in `FIXME.txt`
-(a line-in loopback is not a tap), so fixing `pulse._is_tap_block()` turns it
-from `x` into a pass rather than leaving a silent gap.
-
 
 ## Routing audio into the cable
 
@@ -199,12 +195,18 @@ speakers, and together they run away to 0 dBFS. Whichever combination you ask
 for, morse-logger refuses with exit 2 and tells you the two ways to resolve it,
 rather than guessing.
 
-**Routing sticks after the first time.** `morse-logger route-audio` remembers which
-applications it routed (in `route_apps`) and the running logger re-routes any new
-stream from those applications every few seconds. That matters because
-PulseAudio/PipeWire forgets a moved stream when the stream ends: reloading the
-WebSDR tab, restarting the browser, or letting the page go idle puts the audio
-back on your speakers and the logger goes silently deaf. With the watcher you
+**Routing sticks after the first time, and survives a reboot.** `morse-logger
+route-audio` remembers which applications it routed (in `route_apps`) and the
+running logger re-routes any new stream from those applications every few
+seconds. The copy loop and `--source` loops are recorded too (`tap`,
+`source_loops`), so a restart or a PipeWire restart rebuilds them; if two
+loggers route the same tab, morse-logger notices the tug of war, says so once
+and backs off for five minutes rather than flapping the audio.
+
+That matters because PulseAudio/PipeWire forgets a moved stream when the stream
+ends: reloading the WebSDR tab, restarting the browser, or letting the page go
+idle puts the audio back on your speakers and the logger goes silently deaf.
+With the watcher you
 route once per application, not once per session. `morse-logger config --set
 route_watch=false` turns it off; `morse-logger config --set route_apps=[]` forgets them.
 

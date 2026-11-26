@@ -315,6 +315,10 @@ Every command (full list, identical to "morse-logger --help")
   morse-logger sdr [FREQ]             tune a hardware RTL-SDR into the cable
   morse-logger config [--set k=v]     show or change settings
   morse-logger logs                   show the log directory
+  morse-logger prune --days N         archive logs older than N days (--dry-run,
+                               --delete; off unless asked)
+  morse-logger level [--set] [--auto] measure the cable level and trim the source
+                               volume toward -14 dBFS
 
 Logs:  ~/morse-logger/logs/morse-YYYY-MM-DD.txt   (human)
        ~/morse-logger/logs/morse.jsonl            (machine)
