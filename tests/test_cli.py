@@ -1,6 +1,8 @@
 """Tests for the CLI helpers: the follow loop, filters and argument parsing."""
 
 import argparse
+import contextlib
+import io
 import os
 import queue
 import sys
@@ -126,8 +128,11 @@ class RoutePersistenceTest(unittest.TestCase):
             side_effect=lambda c, home=None: self.saved.append(dict(c)))
         self.load.start()
         self.save.start()
+        self.out = mock.patch("sys.stdout", new_callable=io.StringIO)
+        self.out_mock = self.out.start()
 
     def tearDown(self):
+        self.out.stop()
         self.load.stop()
         self.save.stop()
         self.tmp.cleanup()
@@ -290,6 +295,60 @@ class FollowLinesTest(unittest.TestCase):
         self.write("one\n\n", mode="w")
         self.start(lambda: self.path)
         self.assertEqual(self.next_line(), "one")
+
+
+class PruneCommandTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = {"_home": self.tmp.name,
+                    "log_dir": os.path.join(self.tmp.name, "logs"),
+                    "retention_days": 0}
+        self.load = mock.patch.object(cli.logger, "load_config",
+                                      return_value=self.cfg)
+        self.load.start()
+        self.out = mock.patch("sys.stdout", new_callable=io.StringIO)
+        self.out_mock = self.out.start()
+
+    def tearDown(self):
+        self.out.stop()
+        self.load.stop()
+        self.tmp.cleanup()
+
+    def prune(self, **kw):
+        args = argparse.Namespace(days=None, dry_run=False, delete=False,
+                                  force=False)
+        for key, value in kw.items():
+            setattr(args, key, value)
+        return cli.cmd_prune(args)
+
+    def test_retention_off_by_default(self):
+        self.assertEqual(self.prune(), 2)
+        self.assertIn("retention is off", self.out_mock.getvalue())
+
+    def test_days_argument_overrides_the_config(self):
+        with mock.patch.object(cli.retention, "prune",
+                               return_value={"cutoff": "x", "days": 7,
+                                             "files": 0, "jsonl_lines": 0,
+                                             "rows": 0, "bytes": 0,
+                                             "delete": False,
+                                             "dry_run": False}) as prune:
+            self.assertEqual(self.prune(days=7), 0)
+        self.assertEqual(prune.call_args[0][2], 7)
+
+    def test_refuses_while_the_logger_runs(self):
+        with mock.patch.object(cli.logger, "lock_holder", return_value=1234):
+            self.assertEqual(self.prune(days=7), 2)
+        self.assertIn("the logger is running", self.out_mock.getvalue())
+
+    def test_force_runs_while_the_logger_runs(self):
+        with mock.patch.object(cli.logger, "lock_holder", return_value=1234), \
+                mock.patch.object(cli.retention, "prune",
+                                  return_value={"cutoff": "x", "days": 7,
+                                                "files": 0, "jsonl_lines": 0,
+                                                "rows": 0, "bytes": 0,
+                                                "delete": False,
+                                                "dry_run": True}):
+            self.assertEqual(self.prune(days=7, force=True), 0)
 
 
 if __name__ == "__main__":

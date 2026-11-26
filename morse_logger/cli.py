@@ -8,7 +8,8 @@ import subprocess
 import sys
 import time
 
-from . import __version__, autotune, fldigi, logger, pulse, sdr, selftest, translate, wpm
+from . import (__version__, autotune, fldigi, logger, pulse, retention, sdr,
+               selftest, translate, wpm)
 
 PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -1330,6 +1331,25 @@ def cmd_logs(args):
     return 0
 
 
+def cmd_prune(args):
+    """Archive (or delete) logs older than N days. Off unless asked."""
+    cfg = logger.load_config(create=False)
+    days = args.days if args.days is not None else int(cfg.get("retention_days") or 0)
+    if days <= 0:
+        print("retention is off: pass --days N, or set retention_days in config.json")
+        return 2
+    home = cfg["_home"]
+    pid = read_pid(home)
+    if not args.force and (logger.lock_holder(home) or (pid and alive(pid))):
+        print("the logger is running; stop it first, or use --force "
+              "(a running daemon holds the JSONL open)")
+        return 2
+    result = retention.prune(home, cfg["log_dir"], days,
+                             dry_run=args.dry_run, delete=args.delete)
+    print(retention.summary_text(result))
+    return 0
+
+
 # ---------------------------------------------------------------- parser
 def build_parser():
     p = argparse.ArgumentParser(
@@ -1500,8 +1520,19 @@ def build_parser():
     co.add_argument("--set", metavar="KEY=VALUE")
     co.set_defaults(func=cmd_config)
 
-    lg = sub.add_parser("logs", help="show the log directory contents")
+    lg = sub.add_parser("logs", help="list the log files")
     lg.set_defaults(func=cmd_logs)
+
+    pr = sub.add_parser("prune", help="archive or delete logs older than N days")
+    pr.add_argument("--days", type=int, metavar="N",
+                    help="keep this many days (default: retention_days, 0 = off)")
+    pr.add_argument("--dry-run", action="store_true",
+                    help="say what would be pruned, change nothing")
+    pr.add_argument("--delete", action="store_true",
+                    help="delete instead of archiving to <home>/archive")
+    pr.add_argument("--force", action="store_true",
+                    help="run even while the logger is up (it holds the JSONL open)")
+    pr.set_defaults(func=cmd_prune)
     return p
 
 

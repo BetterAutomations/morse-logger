@@ -46,6 +46,8 @@ DEFAULT_CONFIG = {
     "max_line_chars": 160,
     "min_chars": 2,
     "repeat_window_s": 120,
+    # 0 keeps everything; `prune --days N` or this setting turns it on
+    "retention_days": 0,
     "log_dir": None,
     "monitor": True,
     "tap": False,

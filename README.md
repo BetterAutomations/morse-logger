@@ -296,6 +296,7 @@ run `morse-logger tune --auto`.
 | `morse-logger tail [-n N] [-f] [--date YYYY-MM-DD]` | read the log |
 | `morse-logger translate "TEXT"` | try the CW abbreviation glossary on any text |
 | `morse-logger logs` | show the log directory |
+| `morse-logger prune --days N [--dry-run] [--delete]` | archive (or delete) logs older than N days; off by default |
 | `morse-logger config [--set key=value]` | show/change settings |
 
 ## Several conversations at once
@@ -350,6 +351,14 @@ channeliser.
 
 Repeated identical transmissions (e.g. an unattended CQ loop) are marked `xN`
 instead of flooding the log.
+
+**Retention.** Nothing is pruned unless asked: `retention_days` defaults to 0.
+`morse-logger prune --days N` archives older daily files and JSONL lines as
+`.gz` under `<home>/archive/` and deletes the matching SQLite rows (then
+`VACUUM`s); `--delete` removes instead of archiving. It refuses to run while
+the daemon is up because the daemon holds the JSONL open (`--force` overrides).
+The two stores are pruned to the same cutoff, so the text/JSONL/SQLite views
+never disagree.
 
 <a name="hardware"></a>
 ## Hardware RTL-SDR
