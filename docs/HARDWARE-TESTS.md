@@ -39,6 +39,13 @@ Dongle: ____________  Serial: ______  Antenna: ______  Date: ___________
 | B11 | stream restore | `pactl list sink-inputs` after reboot | browser stream is where you left it, or `route-audio --all` fixes it |
 | B12 | saved monitor choice | `cable up --no-monitor`, then a bare `cable up` | monitoring stays off; no new loopback, `config.json` still `"monitor": false` |
 | B13 | echo check | with monitoring on, `morse-logger doctor` | `[ok] one monitor loopback into your speakers`; add a second cable→speakers loopback by hand and it turns `[!!]`, naming both modules |
+| B14 | level report | `morse-logger level` on a live signal | peak dBFS, volume %, and a verdict (ok / too quiet / clipping) between -20 and -10 dBFS |
+| B15 | level trim | drive the feed to 0 dBFS, `level --set` | one step of at most 6 dB toward the target, never past 100 %, stops inside the deadband |
+| B16 | never amplify silence | mute the feed, `level --set` | refuses: digital silence is not amplified, volume unchanged |
+| B17 | level auto | `level --auto` through a QSB fade | one step per interval, no oscillation, settles |
+| B18 | PipeWire restart | `systemctl --user restart pipewire` | within ~30 s the cable and the saved source loops are back and a `#` repair line appears; the browser may still need a full restart (C2) |
+| B19 | saved loops after reboot | reboot with `source_loops` set | `pactl list modules` shows the same source→cable pairs again |
+| B20 | --stop-source | `route-audio --source <alsa_input...>`, then `--stop-source` | the line-in loop is removed (bba188b); the default-sink tap is not touched |
 
 ## C. Browser behaviour
 
@@ -60,6 +67,8 @@ Dongle: ____________  Serial: ______  Antenna: ______  Date: ___________
 | D5 | bias tee | `--bias-tee` | measured at the connector; off by default |
 | D6 | sample rates | 1.2 / 2.4 / 2.8 / 3.2 MS/s | note which rates stay stable for 10 minutes without USB errors |
 | D7 | USB power | long cable / hub | no `-5` or `-9` errors in `dmesg` during a 10-minute run |
+| D8 | two sticks | two dongles plugged in | `sdr --list` shows both with serials; `sdr 7.03 --device <serial>` drives only that one; after a replug the serial still selects it (indexes move, serials do not) |
+| D9 | hot unplug | pull the dongle mid-run | an event is logged, restarts back off 30 s, 60 s, 120 s..., and plugging it back recovers without restarting the daemon |
 
 ## E. `scan` (survey)
 
@@ -125,6 +134,7 @@ Implement only after E passes. When it exists, verify:
 | I7 | port occupied | start a stray fldigi on 7362, then `start`: stray is reaped |
 | I8 | stop kills all | `morse-logger stop` with two daemons: both die |
 | I9 | 24 h soak | leave it running a day | no restart loop, RSS flat, no fd growth (`ls /proc/PID/fd \| wc -l`) |
+| I10 | repair is visible | after I4 or I5, look at the daily text log | a `#` line for the repair, `status` shows the last event with its age, and at most one desktop notification |
 
 ## J. Logs
 
@@ -138,6 +148,9 @@ Implement only after E passes. When it exists, verify:
 | J6 | unresolved chars | rough copy | fldigi's lowercase appears as `*` |
 | J7 | sqlite | `sqlite3 morse.sqlite3 "pragma integrity_check"` | `ok` |
 | J8 | csv/jsonl round trip | compare `.txt` line count with `morse.jsonl` | same number of records |
+| J9 | prune refuses while running | `prune --days 1` with the daemon up | refused, naming the daemon; nothing deleted |
+| J10 | prune archives | `prune --days 7 --dry-run`, then for real | the dry run lists exactly what goes; archives are gzip and `zcat` cleanly; text, JSONL and sqlite end at the same cutoff |
+| J11 | log after a prune | keep logging for an hour after J10 | the JSONL appends again, a new daily file appears, no gap or lost day |
 
 ## K. Capacity on an Intel Core 2 Duo SU9300
 
@@ -150,6 +163,8 @@ Implement only after E passes. When it exists, verify:
 | K5 | thermal | 30 minutes at full decode: `sensors`, clock throttling |
 | K6 | survey while decoding | does a scan disturb the running decoder? |
 | K7 | RAM headroom | total free with browser + decoder at the end of a day |
+| K8 | profile does not compound | note the intervals in `config.json`, `rm ~/morse-logger/run/cpu.json`, restart twice, re-read | the same profile is measured and the stored intervals are unchanged (the 300 -> 1200 -> 4800 bug, c018720) |
+| K9 | slow profile behaves | on the SU9300, `status` and a 30 min run | `intervals x4`, watchdog checks visibly less frequent, no restart storm from a quiet band |
 
 ## L. Before publishing a Flatpak
 
