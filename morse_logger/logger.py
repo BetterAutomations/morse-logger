@@ -203,12 +203,17 @@ def acquire_lock(home=None):
     import fcntl
     path = lock_path(home)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    handle = open(path, "w")
+    # "a" (not "w"): opening for write would truncate the pid of the daemon that
+    # already holds the lock, so a second start would erase the very information
+    # it reports ("another daemon is running, pid ...").
+    handle = open(path, "a")
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         handle.close()
         return None
+    handle.seek(0)
+    handle.truncate()
     handle.write(str(os.getpid()))
     handle.flush()
     return handle
@@ -271,9 +276,12 @@ class Tailer:
             self.opened = False
             return ""
         if st.st_ino != self.ino or st.st_size < self.pos:
-            # rotated or truncated by a fresh fldigi instance
+            # rotated or truncated by a fresh fldigi instance: a different file
+            # (or a shorter one) always means read it from the start. Keeping the
+            # old offset for a *larger* replacement skips the first bytes of the
+            # new file - exactly the text a restart decodes first.
             self.ino = st.st_ino
-            self.pos = 0 if st.st_size < self.pos else self.pos
+            self.pos = 0
         if st.st_size == self.pos:
             return ""
         try:

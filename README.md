@@ -139,6 +139,7 @@ logger straight from this directory without root (`python3 -m morse_logger.cli d
 
 ```
 morse_logger/        the program (standard library only - no pip, no venv)
+tests/               unit tests (unittest, no audio, no decoder, no root)
 tools/audit_verbs.py checks that every verb is documented
 docs/DESIGN.md       architecture, measurements, bundle construction (not needed to use it)
 docs/HARDWARE-TESTS.md  the checks that need a real dongle, sound card or clean machine
@@ -153,6 +154,26 @@ test_recordings/     NOT in git beyond the directory: the W1AW audio is large an
 
 Running it from a checkout, with no root and no bundle, only needs fldigi on the
 `PATH` (or in `runtime/`): `python3 -m morse_logger.cli doctor`.
+
+## Tests
+
+The unit tests need nothing but python3: no fldigi, no audio server, no dongle,
+no root. They cover the pure parts - the follow loop and its rotation,
+truncation and midnight rules, the 150-column wrapper, the glossary and
+coherence score, the keying-speed measurement (on synthetic CW), re-timing,
+tone detection, the SDR command line, pactl parsing, the daemon's decisions -
+plus the places where a wrong guess costs a whole session.
+
+```
+python3 -m unittest discover -s tests        # quiet
+python3 -m unittest discover -s tests -v     # one line per test
+python3 -m unittest tests.test_logger -v     # a single module
+```
+
+One test is marked as an expected failure: it asserts the rule in `FIXME.txt`
+(a line-in loopback is not a tap), so fixing `pulse._is_tap_block()` turns it
+from `x` into a pass rather than leaving a silent gap.
+
 
 ## Routing audio into the cable
 

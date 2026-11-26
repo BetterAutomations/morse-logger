@@ -19,6 +19,7 @@ it; it takes effect after a replug or reboot.
 """
 import collections
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -111,16 +112,24 @@ def devices(timeout=6.0):
     cur = None
     for line in raw.splitlines():
         s = line.strip()
-        if s.lower().startswith("found") and "device" in s.lower():
-            if cur:
-                found.append(cur)
-            cur = {"index": len(found), "desc": s}
+        # Device lines look like "  0:  Realtek, RTL2838UHIDIR, SN: 00000001".
+        # The "Found 1 device(s):" header is *not* a device, and neither is
+        # "Using device 0: ...", so match the numbered list only.
+        m = re.match(r"^(\d+):\s+(.+)$", s)
+        if m:
+            desc, serial = m.group(2), None
+            sn = re.search(r",\s*SN:\s*(\S+)", desc)
+            if sn:
+                serial = sn.group(1)
+                desc = desc[:sn.start()].strip()
+            cur = {"index": int(m.group(1)), "desc": desc}
+            if serial:
+                cur["serial"] = serial
+            found.append(cur)
         elif cur is not None and ("Serial number" in s or "serial" in s.lower()):
             cur["serial"] = s.split(":", 1)[-1].strip()
         elif cur is not None and ("Tuner type" in s or "tuner" in s.lower()):
             cur["tuner"] = s.split(":", 1)[-1].strip()
-    if cur:
-        found.append(cur)
     return found, raw
 
 
