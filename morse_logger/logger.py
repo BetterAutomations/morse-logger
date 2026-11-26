@@ -46,6 +46,7 @@ DEFAULT_CONFIG = {
     "max_line_chars": 160,
     "min_chars": 2,
     "repeat_window_s": 120,
+    "notify": True,          # desktop notification for repair events
     # 0 keeps everything; `prune --days N` or this setting turns it on
     "retention_days": 0,
     "log_dir": None,
@@ -604,6 +605,18 @@ class Journals:
         db.commit()
         rec_out["id"] = cur.lastrowid
         return line, rec_out
+
+    def note(self, text, when=None):
+        """A system event in the daily text log, marked with `#`.
+
+        The marker can never match the traffic format, so a repair is visible
+        where a human is already reading without looking like decoded copy.
+        """
+        when = when or datetime.now().astimezone()
+        self._roll(when)
+        line = f"{when.strftime('%Y-%m-%d %H:%M:%S')}  # {text}"
+        self._txt.write(line + "\n")
+        return line
 
     def close(self):
         for f in (self._txt, self._jsonl):

@@ -352,6 +352,13 @@ channeliser.
 Repeated identical transmissions (e.g. an unattended CQ loop) are marked `xN`
 instead of flooding the log.
 
+**Repairs are visible.** A watchdog restart, a re-created cable or a
+speed-driven decoder restart appends a marked line to the same daily text log
+(`2026-11-23 11:24:02  # watchdog: decoder moved to 840 Hz (retune #1)`), keeps
+it in `status` as `repair`, and sends a desktop notification when `notify-send`
+is available. The `#` can never match the traffic format, so it cannot be
+mistaken for decoded copy; repeats within ten minutes are not re-sent.
+
 **Retention.** Nothing is pruned unless asked: `retention_days` defaults to 0.
 `morse-logger prune --days N` archives older daily files and JSONL lines as
 `.gz` under `<home>/archive/` and deletes the matching SQLite rows (then

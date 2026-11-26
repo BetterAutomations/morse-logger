@@ -33,7 +33,7 @@ class RunnerCase(unittest.TestCase):
                          "watchdog_window": 2, "watchdog_cooldown_s": 10,
                          "speed_watchdog_change": 0.2,
                          "speed_watchdog_max_restarts": 4,
-                         "min_chars": 1})
+                         "min_chars": 1, "notify": False})
         self.runner = Runner(self.cfg, verbose=False)
         self.saved = mock.patch.object(logger, "save_config")
         self.saved.start()
@@ -73,6 +73,7 @@ class AdoptWpmTest(RunnerCase):
             self.assertTrue(self.runner.adopt_wpm(measurement(30), "test", restart=True))
         restart.assert_called_once_with(keep_tone=True)
         self.assertEqual(self.runner.speed_restarts, 1)
+        self.assertEqual(self.runner.repairs, 1)
 
     def test_startup_does_not_restart(self):
         with mock.patch.object(self.runner, "restart_engine") as restart:
@@ -180,6 +181,85 @@ class RestoreLoopsTest(RunnerCase):
 
         with mock.patch.object(daemon.pulse, "loop_source", side_effect=loop):
             self.runner._restore_source_loops()
+
+
+class RepairTest(RunnerCase):
+    def text(self):
+        path = os.path.join(self.cfg["log_dir"],
+                            "morse-%s.txt" % daemon.datetime.now().strftime("%Y-%m-%d"))
+        if not os.path.exists(path):
+            return ""
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def test_repair_is_written_where_a_human_reads(self):
+        self.runner.repair("decoder restarted")
+        self.assertIn("# decoder restarted", self.text())
+        self.assertEqual(self.runner.last_repair, "decoder restarted")
+        self.assertEqual(self.runner.repairs, 1)
+
+    def test_status_carries_the_last_repair(self):
+        self.runner.repair("cable was gone")
+        st = self.status()
+        self.assertEqual(st["last_repair"], "cable was gone")
+        self.assertEqual(st["repairs"], 1)
+
+    def test_a_repeat_within_ten_minutes_is_not_resent(self):
+        with mock.patch.object(daemon.time, "time", return_value=1000):
+            self.runner.repair("same thing")
+            self.runner.repair("same thing")
+        self.assertEqual(self.runner.repairs, 1)
+        self.assertEqual(self.text().count("# same thing"), 1)
+
+    def test_the_same_text_after_ten_minutes_is_resent(self):
+        with mock.patch.object(daemon.time, "time", side_effect=[1000, 2000]):
+            self.runner.repair("same thing")
+            self.runner.repair("same thing")
+        self.assertEqual(self.runner.repairs, 2)
+
+    def test_desktop_notification_is_best_effort(self):
+        self.cfg["notify"] = True
+        with mock.patch.object(daemon, "notify_desktop", return_value=True) as note:
+            self.runner.repair("decoder restarted")
+        note.assert_called_once_with("decoder restarted")
+
+    def test_notification_can_be_turned_off(self):
+        self.cfg["notify"] = False
+        with mock.patch.object(daemon, "notify_desktop") as note:
+            self.runner.repair("decoder restarted")
+        note.assert_not_called()
+
+
+class CableWatchTest(RunnerCase):
+    def test_a_present_cable_is_left_alone(self):
+        with mock.patch.object(daemon.pulse, "sink_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "source_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "ensure_cable") as ensure:
+            self.runner.check_cable(100)
+        ensure.assert_not_called()
+        self.assertEqual(self.runner.repairs, 0)
+
+    def test_a_missing_cable_is_recreated_and_reported(self):
+        with mock.patch.object(daemon.pulse, "sink_exists", return_value=False), \
+                mock.patch.object(daemon.pulse, "source_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "ensure_cable",
+                                  return_value={"sink": True}), \
+                mock.patch.object(self.runner, "_restore_source_loops",
+                                  return_value=1):
+            self.runner.check_cable(100)
+        self.assertEqual(self.runner.repairs, 2)      # cable + restored loop
+        with open(os.path.join(self.cfg["log_dir"],
+                               "morse-%s.txt" % daemon.datetime.now().strftime("%Y-%m-%d")),
+                  encoding="utf-8") as f:
+            self.assertIn("cable was gone", f.read())
+
+    def test_the_check_runs_at_most_every_30_seconds(self):
+        with mock.patch.object(daemon.pulse, "sink_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "source_exists", return_value=True):
+            self.runner.check_cable(100)
+            self.runner.check_cable(110)             # inside the interval
+            self.runner.check_cable(140)
+        self.assertEqual(self.runner.last_cable_check, 140)
 
 
 class RouteFlapTest(RunnerCase):

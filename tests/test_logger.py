@@ -429,6 +429,14 @@ class JournalsTest(unittest.TestCase):
         self.assertIn("CQ CQ", self.txt("2026-11-27"))
         self.assertEqual(len(self.jsonl()), 2)
 
+    def test_note_is_marked_so_it_cannot_be_traffic(self):
+        import datetime
+        line = self.j.note("cable was gone - re-created it",
+                           datetime.datetime(2026, 11, 26, 12, 0, 0))
+        self.assertEqual(line, "2026-11-26 12:00:00  # cable was gone - re-created it")
+        self.assertIn("# cable was gone", self.txt())
+        self.assertEqual(self.jsonl(), [])          # an event is not a record
+
 
 if __name__ == "__main__":
     unittest.main()

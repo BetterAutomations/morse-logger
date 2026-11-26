@@ -2,6 +2,8 @@
 import json
 import os
 import signal
+import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -10,6 +12,20 @@ from datetime import datetime, timezone
 from collections import deque
 
 from . import autotune, fldigi, logger, pulse, translate, wpm
+
+
+def notify_desktop(text):
+    """Best effort: a desktop notification if one can be delivered at all."""
+    exe = shutil.which("notify-send")
+    if not exe:
+        return False
+    try:
+        subprocess.run([exe, "--app-name", "morse-logger", "Morse logger", text],
+                       timeout=3, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 class Runner:
@@ -65,6 +81,8 @@ class Runner:
         self.last_speed_check = 0.0
         self.last_silence_check = 0.0
         self.speed_restarts = 0
+        self.repairs = 0
+        self.last_repair = None
         # routing-tug-of-war memory: another logger watching the same app puts
         # the stream back a second after we move it, so stop competing
         self._moves = {}
@@ -76,6 +94,26 @@ class Runner:
         if self.verbose:
             stamp = datetime.now().strftime("%H:%M:%S")
             print(f"[{stamp}] {msg}", flush=True)
+
+    def repair(self, text):
+        """Say something happened where a human will see it.
+
+        `say()` only reaches the daemon log, and only when verbose, so a
+        watchdog restart or a re-created cable was invisible. Repeats within
+        ten minutes are not re-sent (a restart loop must not flood the log).
+        """
+        now = time.time()
+        if text == self.last_repair and now - getattr(self, "_last_repair_at", 0) < 600:
+            return
+        self.last_repair, self._last_repair_at = text, now
+        self.repairs += 1
+        try:
+            self.journals.note(text)
+        except OSError as exc:
+            print(f"event: could not write {exc}", flush=True)
+        self.say(f"event: {text}")
+        if self.cfg.get("notify", True):
+            notify_desktop(text)
 
     def write_status(self, extra=None):
         eng = self.eng
@@ -99,6 +137,8 @@ class Runner:
             "last_coherence": getattr(self, "last_coh", None),
             "watchdog_retunes": getattr(self, "retunes", 0),
             "speed_restarts": getattr(self, "speed_restarts", 0),
+            "repairs": getattr(self, "repairs", 0),
+            "last_repair": getattr(self, "last_repair", None),
             "phase": getattr(self, "phase", "logging"),
             "wpm": self.cfg.get("wpm"),
             "wpm_measured": self.measured[0] if self.measured else None,
@@ -127,10 +167,14 @@ class Runner:
         cfg = self.cfg
         # one source of truth at run time: the control file, seeded from config
         logger.write_dial(cfg.get("dial_mhz"), self.home)
-        pulse.ensure_cable(state_file=os.path.join(self.run_dir, "pulse-modules.json"),
-                           monitor=bool(cfg.get("monitor")),
-                           tap=bool(cfg.get("tap")))
-        self._restore_source_loops()
+        done = pulse.ensure_cable(
+            state_file=os.path.join(self.run_dir, "pulse-modules.json"),
+            monitor=bool(cfg.get("monitor")), tap=bool(cfg.get("tap")))
+        if self.restarts and (done.get("sink") or done.get("source")):
+            self.repair("cable was missing - re-created it (sound server restarted?)")
+        restored = self._restore_source_loops()
+        if restored:
+            self.repair(f"restored {restored} saved source loop(s)")
         self.eng = fldigi.Fldigi(
             home=self.home,
             input_device=cfg["input_device"],
@@ -163,11 +207,14 @@ class Runner:
         with it, so the saved list is the only thing that brings the audio back.
         """
         sf = os.path.join(self.run_dir, "pulse-modules.json")
+        restored = 0
         for name in self.cfg.get("source_loops") or []:
             try:
-                pulse.loop_source(name, state_file=sf)
+                if pulse.loop_source(name, state_file=sf):
+                    restored += 1
             except pulse.PulseError as exc:
                 self.say(f"could not restore source loop {name}: {exc}")
+        return restored
 
     def autotune(self, seconds=4.0):
         if not self.eng:
@@ -286,6 +333,8 @@ class Runner:
             self.restart_engine(keep_tone=True)
             self.say(f"{label}: decoder restarted at {new} WPM "
                      f"(restart #{self.speed_restarts})")
+            self.repair(f"decoder restarted at {new} WPM after the fist measured "
+                        f"{m['wpm']:g} WPM (restart #{self.speed_restarts})")
         return True
 
     def measure_wpm_on_start(self):
@@ -382,6 +431,8 @@ class Runner:
         self.say(f"watchdog: keying is present ({m['wpm']:g} WPM) but nothing has "
                  f"decoded in {quiet_s / 60:.0f} min - decoder is probably "
                  f"off-frequency ({cfg.get('tone_hz')} Hz), re-running autotune")
+        self.repair(f"watchdog: keying is present ({m['wpm']:g} WPM) but nothing "
+                    f"decoded in {quiet_s / 60:.0f} min - re-running autotune")
         self.autotune()
 
     def _maybe_retune(self, coh_pct, quality, now):
@@ -416,6 +467,8 @@ class Runner:
         if best and best.get("usable"):
             self.say(f"watchdog: decoder moved to {self.cfg.get('tone_hz')} Hz "
                      f"(retune #{self.retunes})")
+            self.repair(f"watchdog: decoder moved to {self.cfg.get('tone_hz')} Hz "
+                        f"(retune #{self.retunes})")
         else:
             self.say("watchdog: autotune found no usable tone; leaving the carrier alone")
 
@@ -468,6 +521,7 @@ class Runner:
                 if now - getattr(self, "last_route_check", 0) >= 3:
                     self.last_route_check = now
                     self._route_watch()
+                self.check_cable(now)
                 if now - last_status > 2:
                     self.write_status()
                     last_status = now
@@ -535,7 +589,30 @@ class Runner:
             if self.failed_starts >= 5:
                 self.say("giving up after 5 failed restarts without a working decoder "
                          "- fix the cause above, then run: morse-logger restart")
+                self.repair("gave up after 5 failed restarts without a working "
+                            "decoder - fix the cause, then run: morse-logger restart")
                 self.stop_requested = True
+
+    def check_cable(self, now):
+        """Re-create the cable if PipeWire restarted and took it away."""
+        if now - getattr(self, "last_cable_check", 0) < 30:
+            return
+        self.last_cable_check = now
+        try:
+            if pulse.sink_exists() and pulse.source_exists():
+                return
+            pulse.ensure_cable(
+                state_file=os.path.join(self.run_dir, "pulse-modules.json"),
+                monitor=bool(self.cfg.get("monitor")),
+                tap=bool(self.cfg.get("tap")))
+            restored = self._restore_source_loops()
+        except Exception as exc:                  # never kill the loop over this
+            self.say(f"cable watch: {exc}")
+            return
+        self.repair("cable watch: the cable was gone - re-created it "
+                    "(sound server restarted?)")
+        if restored:
+            self.repair(f"cable watch: restored {restored} source loop(s)")
 
     def _sig(self, signum, frame):
         self.say(f"signal {signum}: shutting down")

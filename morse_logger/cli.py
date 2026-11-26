@@ -950,6 +950,8 @@ def cmd_status(args):
               f"decoder now {st.get('wpm')} WPM")
     if st.get("watchdog_retunes"):
         print(f"  watchdog  {st['watchdog_retunes']} automatic retune(s) this session")
+    if st.get("last_repair"):
+        print(f"  repair    {st['last_repair']}")
     print(f"  logged    {st.get('lines')} lines  (restarts {st.get('restarts')})")
     if st.get("last_line"):
         nums = []
