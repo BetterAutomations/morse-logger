@@ -51,6 +51,7 @@ DEFAULT_CONFIG = {
     "level_target_db": -14.0,
     "level_max_step_db": 6.0,
     "level_auto_interval_s": 20,
+    "cable_watch": True,     # re-create the cable if the sound server drops it
     # 0 keeps everything; `prune --days N` or this setting turns it on
     "retention_days": 0,
     "log_dir": None,

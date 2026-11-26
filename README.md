@@ -360,7 +360,10 @@ speed-driven decoder restart appends a marked line to the same daily text log
 (`2026-11-23 11:24:02  # watchdog: decoder moved to 840 Hz (retune #1)`), keeps
 it in `status` as `repair`, and sends a desktop notification when `notify-send`
 is available. The `#` can never match the traffic format, so it cannot be
-mistaken for decoded copy; repeats within ten minutes are not re-sent.
+mistaken for decoded copy; repeats within ten minutes are not re-sent. The
+30-second cable check can be turned off with
+`morse-logger config --set cable_watch=false` if the cable was removed on
+purpose.
 
 **Retention.** Nothing is pruned unless asked: `retention_days` defaults to 0.
 `morse-logger prune --days N` archives older daily files and JSONL lines as

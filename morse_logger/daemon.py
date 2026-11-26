@@ -626,6 +626,8 @@ class Runner:
 
     def check_cable(self, now):
         """Re-create the cable if PipeWire restarted and took it away."""
+        if not self.cfg.get("cable_watch", True):
+            return
         if now - getattr(self, "last_cable_check", 0) < 30:
             return
         self.last_cable_check = now

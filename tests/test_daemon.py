@@ -261,6 +261,13 @@ class CableWatchTest(RunnerCase):
             self.runner.check_cable(140)
         self.assertEqual(self.runner.last_cable_check, 140)
 
+    def test_cable_watch_can_be_turned_off(self):
+        self.runner.cfg["cable_watch"] = False
+        with mock.patch.object(daemon.pulse, "sink_exists", return_value=False), \
+                mock.patch.object(daemon.pulse, "ensure_cable") as ensure:
+            self.runner.check_cable(100)
+        ensure.assert_not_called()
+
 
 class LevelWatchTest(RunnerCase):
     def test_off_by_default(self):
