@@ -302,7 +302,7 @@ def cmd_route(args):
               if (not args.index or str(row["index"]) in {str(i) for i in args.index})
               and not str(row["index"]).startswith("loopback")]
     moved, skipped = pulse.route_sink_inputs(target=pulse.sink_name(getattr(args, "to", 1) or 1),
-                                             indices=args.index)
+                                             indices=args.index, state_file=sf)
     # Remember the applications in scope whether or not they had to move, so a
     # stream that is already on the cable still gets its app remembered - that is
     # what makes the routing survive a browser reload.

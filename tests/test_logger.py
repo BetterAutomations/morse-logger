@@ -370,11 +370,13 @@ class JournalsTest(unittest.TestCase):
         line, stored = self.j.write(
             rec(), datetime.datetime(2026, 11, 26, 12, 0, 0))
         self.assertTrue(line.startswith("2026-11-26 12:00:00  ["))
-        self.assertIn("7.03MHz", line)
-        self.assertIn("q= 45.0", line)
+        self.assertIn("  7.030MHz", line)
+        self.assertIn("q=  45.0", line)
         self.assertIn("coh= 88", line)
         self.assertIn("750Hz", line)
         self.assertTrue(line.endswith("CQ CQ DE N0CALL"))
+        # the text starts in the same column as js8call-logger's line
+        self.assertEqual(line.index("CQ"), logger.HEADER_WIDTH)
         self.assertIsInstance(stored["id"], int)
 
     def test_unknown_fields_are_dashes(self):
@@ -382,10 +384,17 @@ class JournalsTest(unittest.TestCase):
         line, _ = self.j.write(rec(dial_mhz=None, quality=None,
                                    carrier_hz=None, coherence=None),
                                datetime.datetime(2026, 11, 26, 12, 0, 0))
-        self.assertIn("---", line)
-        self.assertIn("    -", line)
+        self.assertIn("    ---MHz", line)
+        self.assertIn("q=     -", line)
         self.assertIn("   -Hz", line)
         self.assertIn("coh=  -", line)
+
+    def test_repeat_marker_keeps_the_width(self):
+        import datetime
+        line, _ = self.j.write(rec(repeat_count=12),
+                               datetime.datetime(2026, 11, 26, 12, 0, 0))
+        self.assertEqual(line.index("CQ"), logger.HEADER_WIDTH)
+        self.assertIn("x12", line)
 
     def test_legend_is_written_once_per_new_day(self):
         import datetime

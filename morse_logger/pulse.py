@@ -216,12 +216,29 @@ def _monitor_active():
 
 
 def _is_tap_block(block):
+    """True only for the speakers -> cable copy loop.
+
+    Not every loopback into the cable is the tap: a hardware input loop, or a
+    loop from another program's cable, is also "loopback -> our sink". The tap
+    is specifically the default sink's monitor being copied into the cable, so
+    that is what gets matched; without a known default sink fall back to the
+    old, looser test.
+    """
     if "module-loopback" not in block:
         return False
     if f"{SINK}.monitor" in block:          # cable -> speakers (monitor)
         return False
-    # speakers -> cable (tap): sink is our cable
-    return f"sink={SINK}" in block or f"sink_name={SINK}" in block
+    if not (f"sink={SINK}" in block or f"sink_name={SINK}" in block):
+        return False
+    m = re.search(r"(?:^|\s)source=([^\s]+)", block)
+    src = m.group(1) if m else ""
+    try:
+        dst = default_sink_name()
+    except PulseError:
+        dst = ""
+    if dst:
+        return src == f"{dst}.monitor"
+    return src.endswith(".monitor")
 
 
 def _tap_active():
@@ -346,14 +363,19 @@ def loop_source(name, state_file=None, latency_ms=40):
 
 
 def stop_source_loops(state_file=None):
-    """Remove loopbacks that pull a hardware input into the cable (not the tap)."""
+    """Remove loopbacks that pull a source into the cable - but never the tap.
+
+    The tap is `default-sink.monitor -> cable`; a line input, or another
+    program's `<name>_cable.monitor`, is a source loop and is safe to remove.
+    Comparing the whole argument (not a ".monitor" substring) is what makes
+    sharing another logger's cable removable again.
+    """
     killed = []
     for mid, block in _module_blocks():
         if "module-loopback" not in block or f"sink={SINK}" not in block:
             continue
-        m = re.search(r"(?:^|\s)source=([^\s]+)", block)
-        if not m or ".monitor" in m.group(1):
-            continue                          # that is the speakers tap, not a line in
+        if _is_tap_block(block):
+            continue                          # the speakers tap, not a source loop
         _run(["pactl", "unload-module", mid], check=False)
         killed.append(mid)
     _forget_modules(killed, state_file)
@@ -368,12 +390,14 @@ def sink_input_details():
     for block in text.split("Sink Input #")[1:]:
         idx = block.split("\n", 1)[0].strip()
         info = {"index": int(idx) if idx.isdigit() else idx, "sink": "?",
-                "sink_name": "?", "app": "?", "stream": ""}
+                "sink_name": "?", "app": "?", "stream": "", "module": None}
         for line in block.splitlines():
             line = line.strip()
             if line.startswith("Sink:"):
                 info["sink"] = line.split(":", 1)[1].strip()
                 info["sink_name"] = sink_names.get(info["sink"], info["sink"])
+            elif line.startswith("Owner Module:"):
+                info["module"] = line.split(":", 1)[1].strip()
             elif line.startswith("application.name ="):
                 info["app"] = line.split("=", 1)[1].strip().strip('"')
             elif line.startswith("media.name ="):
@@ -382,29 +406,49 @@ def sink_input_details():
     return out
 
 
-def is_own_loopback(row):
+def our_modules(state_file=None):
+    """Module ids morse-logger loaded, as recorded in the pulse state file."""
+    if not state_file or not os.path.exists(state_file):
+        return set()
+    try:
+        with open(state_file) as f:
+            data = json.load(f)
+        return {str(m) for m in data.get("modules", [])}
+    except (OSError, ValueError):
+        return set()
+
+
+def is_own_loopback(row, own=()):
     """True for the sink-inputs that OUR loopback modules create.
 
     Moving one of these into the cable closes a loop (cable -> loopback ->
     cable), which runs away to 0 dBFS and silences the decoder. Never route
-    them.
+    them. Ownership comes from the owning module id against the ids we loaded
+    (recorded in the state file): another program's module-loopback also has a
+    "loopback-" media name, and treating those as ours hid them from
+    route-audio. Without a module id, fall back to the old prefix test.
     """
+    module = row.get("module")
+    own = {str(m) for m in own}
+    if module and own:
+        return str(module) in own
     return (row.get("stream") or "").startswith("loopback-")
 
 
-def route_sink_inputs(target=SINK, indices=None):
+def route_sink_inputs(target=SINK, indices=None, state_file=None):
     """Move running audio streams (e.g. the browser tab) onto the cable.
 
     Returns (moved, skipped) where skipped lists our own loopback streams and
     anything already playing into the cable.
     """
     moved, skipped = [], []
+    own = our_modules(state_file)
     for row in sink_input_details():
         idx = str(row["index"])
         label = row["app"] if row["app"] != "?" else row["stream"]
         if indices and idx not in [str(i) for i in indices]:
             continue
-        if is_own_loopback(row):
+        if is_own_loopback(row, own):
             skipped.append((idx, label, "morse-logger's own monitor loopback"))
             continue
         if row.get("sink_name") == target:
@@ -416,7 +460,7 @@ def route_sink_inputs(target=SINK, indices=None):
     return moved, skipped
 
 
-def route_new_streams(target=SINK, apps=(), known=()):
+def route_new_streams(target=SINK, apps=(), known=(), state_file=None):
     """Move streams from the given applications that are not on the cable yet.
 
     Routing is not sticky in PipeWire/PulseAudio: a moved stream keeps its
@@ -429,9 +473,10 @@ def route_new_streams(target=SINK, apps=(), known=()):
     """
     moved = []
     apps = {a for a in apps if a}
+    own = our_modules(state_file)
     for row in sink_input_details():
         idx = str(row["index"])
-        if row.get("sink_name") == target or is_own_loopback(row):
+        if row.get("sink_name") == target or is_own_loopback(row, own):
             continue
         app = row["app"] if row["app"] != "?" else row["stream"]
         if app not in apps:

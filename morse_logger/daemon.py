@@ -314,7 +314,8 @@ class Runner:
             return
         try:
             moved, self._routed = pulse.route_new_streams(
-                apps=apps, known=getattr(self, "_routed", set()))
+                apps=apps, known=getattr(self, "_routed", set()),
+                state_file=os.path.join(self.run_dir, "pulse-modules.json"))
         except Exception:                     # noqa: BLE001 - never kill the loop
             return
         for idx, app in moved:
@@ -547,7 +548,7 @@ class Runner:
         # at a token boundary and log the remainder as its own record with the
         # same timestamp - never as an indented fragment, which reads like a new
         # transmission that lost its metadata.
-        avail = max(40, (self.journals.max_line or 150) - 63)
+        avail = max(40, (self.journals.max_line or 150) - logger.HEADER_WIDTH)
         toks = text.split(" ")
         parts = [(toks, units)]
         if len(" ".join(units)) > avail and len(toks) == len(units) and len(units) > 1:

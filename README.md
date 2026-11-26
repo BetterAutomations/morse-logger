@@ -322,23 +322,26 @@ channeliser.
   long enough, so one line can span two short overs and a long over can be split
   in two (see [Design notes](#design-notes)):
 
-      2026-11-23 11:23:00  [  3.555MHz q= 65.2 coh=100  760Hz     ]  E QSL EARL K 4EIE U DE W1QJB
-      2026-11-23 11:23:00  [       --- q=    - coh=  -    -Hz     ]  T W H A T ARE YOUR PLANS
-      2026-11-23 11:23:00  [ 144.05MHz q= 12.0 coh=  9 1500Hz  x12]  CQ CQ CQ DE K4EIE K
+      2026-11-23 11:23:00  [  3.555MHz q=  65.2 coh=100       760Hz ?        ]  E QSL EARL K 4EIE U DE W1QJB
+      2026-11-23 11:23:00  [    ---MHz q=     - coh=  -         -Hz ?        ]  T W H A T ARE YOUR PLANS
+      2026-11-23 11:23:00  [144.050MHz q=  12.0 coh=  9  x12 1500Hz ?        ]  CQ CQ CQ DE K4EIE K
 
   The bracketed block comes first, right after the timestamp, in **fixed-width
-  fields**, so the decoded text always starts in the same column (63 here)
-  whatever is known or missing. Unknown values are dashes, not omissions:
+  fields**, so the decoded text always starts in the same column (75 here)
+  whatever is known or missing. Unknown values are dashes, not omissions, and
+  the widths are the same as `js8call-logger`'s line, so `cut -c75-` reads the
+  text from either program's log:
 
   | field | width | meaning |
   |---|---|---|
-  | dial | 10, right-aligned | frequency from `morse-logger dial`, `---` if unset |
-  | `q=` | 5, one decimal | fldigi's peak decoder quality, 0–100 (tone, not text) |
-  | `coh=` | 3 | coherence of the decoded text, 0–100 (how much looks like real words) |
-  | tone | 4 + `Hz` | the decoder's CW tone |
+  | dial | 10, right-aligned, 3 decimals | frequency from `morse-logger dial`, `---` if unset |
+  | `q=` | 8, one decimal | fldigi's peak decoder quality, 0–100 (tone, not text) |
+  | `coh=` | 7 | coherence of the decoded text, 0–100 (how much looks like real words) |
   | repeat | 4 | `x3` when a transmission repeats, `999+` beyond that, else blanks |
+  | tone | 6 | the decoder's CW tone |
+  | callsign | 9 | always `?` for CW: the decoder does not identify the sender. Kept so the line matches `js8call-logger`'s columns |
 
-  Which makes the text a clean column for `cut -c64-`, `awk`, or just reading.
+  Which makes the text a clean column for `cut -c75-`, `awk`, or just reading.
 
 * `morse.jsonl` — same records plus start/end timestamps, repeat counts and the
   exact quality sample; one JSON object per line.

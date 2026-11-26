@@ -10,6 +10,11 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 
+# prefix width of one log line: date-time (19) + 2 + bracket (51) + 2.
+# The decoded text always starts at this offset, in both this program and
+# js8call-logger, so `cut -c75-` reads the same column from either log.
+HEADER_WIDTH = 74
+
 DEFAULT_CONFIG = {
     "input_device": "morse-logger_cable_src",
     "output_device": "default",
@@ -549,14 +554,20 @@ class Journals:
         self._roll(when)
         stamp = when.strftime("%Y-%m-%d %H:%M:%S")
         # metadata goes first, in fixed-width fields, so the decoded text always
-        # starts in the same column no matter which values are known
-        dial = f"{rec['dial_mhz']:g}MHz" if rec.get("dial_mhz") else "---"
-        qual = f"{rec['quality']:5.1f}" if rec.get("quality") is not None else "    -"
-        coh = f"{rec['coherence']:3d}" if rec.get("coherence") is not None else "  -"
+        # starts in the same column (63, col 64) whatever is known or missing.
+        # The widths match js8call-logger's line (dial 10, q/snr 8, coh 7,
+        # repeat/channel 4, tone 6, callsign 9), so `cut -c64-` works on both.
+        # CW does not know the sending station, so the callsign slot is `?`, the
+        # same placeholder that program uses when a callsign is unknown.
+        dial = f"{rec['dial_mhz']:7.3f}MHz" if rec.get("dial_mhz") else "    ---MHz"
+        quality = rec.get("quality")
+        qual = f"q={quality:6.1f}" if quality is not None else "q=     -"
+        coh = f"coh={rec['coherence']:3d}" if isinstance(rec.get("coherence"), int) else "coh=  -"
         tone = f"{rec['carrier_hz']:4d}Hz" if rec.get("carrier_hz") else "   -Hz"
         n_rep = rec.get("repeat_count", 1)
         rep = ("999+" if n_rep > 999 else f"x{n_rep}") if n_rep > 1 else ""
-        head = f"[{dial:>10s} q={qual} coh={coh} {tone} {rep:>4s}]  "
+        who = (rec.get("station") or "?")[:9]
+        head = f"[{dial} {qual} {coh} {rep:>4s} {tone} {who:<9}]  "
         units = rec.get("_units")
         if units is None:                        # raw text, or nothing glossed
             units = (rec.get("text_xlated") or rec["text"]).split(" ")
