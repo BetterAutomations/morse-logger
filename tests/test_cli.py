@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -100,6 +101,100 @@ class TailPathTest(unittest.TestCase):
         fn = cli._tail_path("/logs")
         self.assertEqual(os.path.basename(fn()),
                          "morse-%s.txt" % time.strftime("%Y-%m-%d"))
+
+
+def route_args(**kw):
+    base = dict(all=False, index=None, copy=False, stop_copy=False,
+                source=None, stop_source=False, list_sources=False,
+                list=False, to=1, channels=1, no_monitor=False)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+class RoutePersistenceTest(unittest.TestCase):
+    """route-audio records what it did, so a restart can rebuild it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = {"_home": self.tmp.name, "monitor": True, "tap": False,
+                    "source_loops": [], "route_apps": []}
+        self.saved = []
+        self.load = mock.patch.object(cli.logger, "load_config",
+                                      return_value=self.cfg)
+        self.save = mock.patch.object(
+            cli.logger, "save_config",
+            side_effect=lambda c, home=None: self.saved.append(dict(c)))
+        self.load.start()
+        self.save.start()
+
+    def tearDown(self):
+        self.load.stop()
+        self.save.stop()
+        self.tmp.cleanup()
+
+    def test_source_loop_is_remembered(self):
+        with mock.patch.object(cli.pulse, "loop_source", return_value=True):
+            self.assertEqual(cli.cmd_route(route_args(source="alsa_input.mic")), 0)
+        self.assertEqual(self.saved[-1]["source_loops"], ["alsa_input.mic"])
+
+    def test_repeated_source_loop_is_not_duplicated(self):
+        self.cfg["source_loops"] = ["alsa_input.mic"]
+        with mock.patch.object(cli.pulse, "loop_source", return_value=False):
+            cli.cmd_route(route_args(source="alsa_input.mic"))
+        self.assertEqual(self.saved[-1]["source_loops"], ["alsa_input.mic"])
+
+    def test_stop_source_forgets_the_loops(self):
+        self.cfg["source_loops"] = ["alsa_input.mic"]
+        with mock.patch.object(cli.pulse, "stop_source_loops", return_value=["7"]):
+            cli.cmd_route(route_args(stop_source=True))
+        self.assertEqual(self.saved[-1]["source_loops"], [])
+
+    def test_copy_is_remembered(self):
+        with mock.patch.object(cli.pulse, "ensure_cable",
+                               return_value={"tap": True}), \
+                mock.patch.object(cli.pulse, "_tap_active", return_value=True), \
+                mock.patch.object(cli.pulse, "cable_status",
+                                  return_value={"monitor": False}):
+            self.assertEqual(cli.cmd_route(route_args(copy=True)), 0)
+        self.assertTrue(self.saved[-1]["tap"])
+
+    def test_stop_copy_forgets_the_tap(self):
+        self.cfg["tap"] = True
+        with mock.patch.object(cli.pulse, "stop_tap", return_value=["9"]):
+            cli.cmd_route(route_args(stop_copy=True))
+        self.assertFalse(self.saved[-1]["tap"])
+
+    def test_cable_up_no_monitor_persists(self):
+        with mock.patch.object(cli.pulse, "stop_monitor", return_value=[]), \
+                mock.patch.object(cli.pulse, "ensure_cable",
+                                  return_value={"monitor": False, "tap": False,
+                                                "sink": False,
+                                                "monitor_skipped": False}), \
+                mock.patch.object(cli.pulse, "cable_status",
+                                  return_value={"monitor": False}):
+            self.assertEqual(cli.cmd_cable(route_args(action="up",
+                                                      no_monitor=True)), 0)
+        self.assertFalse(self.saved[-1]["monitor"])
+
+    def test_cable_up_with_monitor_persists(self):
+        with mock.patch.object(cli.pulse, "ensure_cable",
+                               return_value={"monitor": True, "tap": False,
+                                             "sink": False,
+                                             "monitor_skipped": False}), \
+                mock.patch.object(cli.pulse, "cable_status",
+                                  return_value={"monitor": True}), \
+                mock.patch.object(cli.pulse, "_tap_active", return_value=False):
+            self.assertEqual(cli.cmd_cable(route_args(action="up")), 0)
+        self.assertTrue(self.saved[-1]["monitor"])
+
+    def test_cable_down_forgets_everything(self):
+        self.cfg.update({"monitor": True, "tap": True,
+                         "source_loops": ["alsa_input.mic"]})
+        with mock.patch.object(cli.pulse, "cable_down", return_value=["1"]):
+            cli.cmd_cable(route_args(action="down"))
+        self.assertEqual(self.saved[-1]["monitor"], False)
+        self.assertEqual(self.saved[-1]["tap"], False)
+        self.assertEqual(self.saved[-1]["source_loops"], [])
 
 
 class FollowLinesTest(unittest.TestCase):

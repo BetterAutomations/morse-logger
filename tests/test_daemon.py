@@ -161,5 +161,26 @@ class EmitTest(RunnerCase):
         self.assertIsNotNone(self.runner.repeat_id)
 
 
+class RestoreLoopsTest(RunnerCase):
+    def test_saved_source_loops_are_recreated(self):
+        self.runner.cfg["source_loops"] = ["alsa_input.mic",
+                                           "js8call-logger_cable.monitor"]
+        with mock.patch.object(daemon.pulse, "loop_source") as loop:
+            self.runner._restore_source_loops()
+        self.assertEqual([c.args[0] for c in loop.call_args_list],
+                         ["alsa_input.mic", "js8call-logger_cable.monitor"])
+
+    def test_a_failed_restore_does_not_stop_the_others(self):
+        self.runner.cfg["source_loops"] = ["gone", "alsa_input.mic"]
+
+        def loop(name, state_file=None):
+            if name == "gone":
+                raise daemon.pulse.PulseError("no such source")
+            return True
+
+        with mock.patch.object(daemon.pulse, "loop_source", side_effect=loop):
+            self.runner._restore_source_loops()
+
+
 if __name__ == "__main__":
     unittest.main()

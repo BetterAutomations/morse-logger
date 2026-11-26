@@ -196,9 +196,17 @@ def cmd_cable(args):
             print("monitoring enabled: you still hear the cable output on your speakers")
         if done["sink"]:
             print("(created just now)")
+        # Persist the choice: `cable up --no-monitor` used to change only the
+        # live state, so a reboot put monitoring back while `start --no-monitor`
+        # survived. Same request, same result.
+        cfg["monitor"] = not args.no_monitor
+        logger.save_config(cfg)
     elif args.action == "down":
         only = getattr(args, "channels", 1) if args.channels > 1 else None
         removed = pulse.cable_down(state_file=sf, channel=only)
+        if only is None:                # the whole cable is gone, and its loops
+            cfg.update({"monitor": False, "tap": False, "source_loops": []})
+        logger.save_config(cfg)
         if only:
             print(f"cable {only} removed ({len(removed)} module(s) unloaded)")
         else:
@@ -214,19 +222,26 @@ def cmd_cable(args):
 
 
 def cmd_route(args):
-    sf = os.path.join(logger.load_config()["_home"], "run", "pulse-modules.json")
+    cfg = logger.load_config()
+    sf = os.path.join(cfg["_home"], "run", "pulse-modules.json")
     wants_move = bool(args.all or args.index is not None)
     wants_copy = bool(args.copy or args.stop_copy)
     wants_source = bool(args.source or args.stop_source)
 
     if args.list_sources:
         names = pulse.source_names()
-        if not names:
-            print("no hardware capture sources found (only monitors and the cable)")
+        monitors = pulse.monitor_sources()
+        if not names and not monitors:
+            print("no capture sources found (only the cable itself)")
             return 0
-        print("  hardware inputs you can loop into the cable:")
-        for n in names:
-            print(f"    {n}")
+        if names:
+            print("  hardware inputs you can loop into the cable:")
+            for n in names:
+                print(f"    {n}")
+        if monitors:
+            print("  other programs' outputs (share one receiver with them):")
+            for n in monitors:
+                print(f"    {n}")
         print("\n  use: morse-logger route-audio --source NAME")
         return 0
 
@@ -241,15 +256,22 @@ def cmd_route(args):
         except pulse.PulseError as e:
             print(str(e))
             return 2
+        loops = list(dict.fromkeys(list(cfg.get("source_loops") or [])
+                                   + [args.source]))
+        cfg["source_loops"] = loops
+        logger.save_config(cfg)
         if created:
             print(f"line input loop on: {args.source} -> the cable")
             print("the input is still usable by other programs; nothing was moved")
         else:
             print(f"already looped: {args.source} is already feeding the cable")
+        print("remembered in config.json: a restart rebuilds this loop")
         return 0
 
     if args.stop_source:
         killed = pulse.stop_source_loops(state_file=sf)
+        cfg["source_loops"] = []
+        logger.save_config(cfg)
         print(f"line input loop off ({len(killed)} module(s) unloaded)" if killed
               else "no hardware-input loop was running")
         return 0
@@ -271,6 +293,8 @@ def cmd_route(args):
             return 2
         done = pulse.ensure_cable(state_file=sf, monitor=False, tap=True)
         if done["tap"] or pulse._tap_active():
+            cfg["tap"] = True
+            logger.save_config(cfg)
             print("copy on: everything your speakers play now also goes to the cable")
             print("nothing was moved, so your apps keep playing where they are")
         else:
@@ -280,6 +304,8 @@ def cmd_route(args):
 
     if args.stop_copy:
         n = pulse.stop_tap(state_file=sf)
+        cfg["tap"] = False
+        logger.save_config(cfg)
         print(f"copy off ({len(n)} module(s) unloaded)" if n else "copy was not on")
         return 0
 

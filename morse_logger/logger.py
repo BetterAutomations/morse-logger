@@ -29,6 +29,10 @@ DEFAULT_CONFIG = {
     "line_flush_s": 10.0,
     "route_apps": [],
     "route_watch": True,
+    # what route-audio did, so a restart rebuilds it instead of leaving the
+    # cable up without the copy loop or the line input
+    "tap": False,
+    "source_loops": [],
     "min_emit_chars": 12,
     "merge_timeout_s": 10.0,
     "break_on_bt": True,

@@ -192,6 +192,27 @@ class SourceNamesTest(unittest.TestCase):
         with mock.patch.object(pulse, "_run", return_value=mock.Mock(stdout=rows.encode())):
             self.assertEqual(pulse.source_names(), ["alsa_input.usb-mic"])
 
+    def test_monitor_sources_lists_other_programs_outputs(self):
+        rows = ("1\talsa_input.usb-mic\tmodule-alsa-card.c\n"
+                "2\talsa_output.analog-stereo.monitor\tmodule-alsa-card.c\n"
+                "3\tmorse-logger_cable_src\tmodule-remap-source.c\n"
+                "4\tmorse-logger_cable.monitor\tmodule-null-sink.c\n"
+                "5\tmorse-logger_cable_2.monitor\tmodule-null-sink.c\n"
+                "6\tjs8call-logger_cable.monitor\tmodule-null-sink.c\n")
+        with mock.patch.object(pulse, "_run", return_value=mock.Mock(stdout=rows.encode())):
+            self.assertEqual(pulse.monitor_sources(),
+                             ["alsa_output.analog-stereo.monitor",
+                              "js8call-logger_cable.monitor"])
+
+    def test_another_loggers_cable_is_a_valid_source(self):
+        with mock.patch.object(pulse, "source_names", return_value=[]), \
+                mock.patch.object(pulse, "monitor_sources",
+                                  return_value=["js8call-logger_cable.monitor"]), \
+                mock.patch.object(pulse, "_module_blocks", return_value=[]), \
+                mock.patch.object(pulse, "_load_module", return_value="77") as load:
+            self.assertTrue(pulse.loop_source("js8call-logger_cable.monitor"))
+        self.assertIn("source=js8call-logger_cable.monitor", load.call_args[0][0])
+
 
 class RouteTest(unittest.TestCase):
     def rows(self):

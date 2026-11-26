@@ -342,9 +342,30 @@ def source_names():
     return out
 
 
+def monitor_sources():
+    """Other programs' outputs (monitors), excluding our own cable.
+
+    Looping one of these into our cable is how two decoders share one audio
+    stream without either of them stealing it from the other.
+    """
+    out = []
+    for r in sources():
+        if len(r) < 2:
+            continue
+        name = r[1].strip()
+        if not name.endswith(".monitor"):
+            continue
+        if name in (SINK + ".monitor", SOURCE):
+            continue
+        if name.startswith(SINK + "_"):
+            continue        # another of our own cable channels
+        out.append(name)
+    return out
+
+
 def loop_source(name, state_file=None, latency_ms=40):
     """Loop a hardware input into the cable. Nothing is moved; the input stays usable."""
-    if name not in source_names():
+    if name not in source_names() and name not in monitor_sources():
         raise PulseError(f"no such capture source: {name}\n"
                          "see 'morse-logger route-audio --list-sources'")
     for _mid, block in _module_blocks():

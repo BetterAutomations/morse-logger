@@ -125,6 +125,7 @@ class Runner:
         pulse.ensure_cable(state_file=os.path.join(self.run_dir, "pulse-modules.json"),
                            monitor=bool(cfg.get("monitor")),
                            tap=bool(cfg.get("tap")))
+        self._restore_source_loops()
         self.eng = fldigi.Fldigi(
             home=self.home,
             input_device=cfg["input_device"],
@@ -149,6 +150,19 @@ class Runner:
         self.asm.cancel()
         self._autotuned = False
         self.peak_quality = None
+
+    def _restore_source_loops(self):
+        """Re-create the line inputs `route-audio --source` recorded.
+
+        A PipeWire restart or a reboot drops the cable; the modules are gone
+        with it, so the saved list is the only thing that brings the audio back.
+        """
+        sf = os.path.join(self.run_dir, "pulse-modules.json")
+        for name in self.cfg.get("source_loops") or []:
+            try:
+                pulse.loop_source(name, state_file=sf)
+            except pulse.PulseError as exc:
+                self.say(f"could not restore source loop {name}: {exc}")
 
     def autotune(self, seconds=4.0):
         if not self.eng:
