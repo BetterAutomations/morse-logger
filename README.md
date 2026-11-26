@@ -284,7 +284,7 @@ run `morse-logger tune --auto`.
 |---|---|
 | `morse-logger doctor` | check the whole installation and audio setup |
 | `morse-logger selftest` | decode a synthetic CW signal end to end |
-| `morse-logger cable up\|down\|status` | manage the virtual audio cable (`--no-monitor`) |
+| `morse-logger cable up\|down\|status` | manage the virtual audio cable (`--monitor\|--no-monitor`; no flag keeps the saved setting) |
 | `morse-logger route-audio [--list\|--all\|--index N\|--copy\|--source NAME]` | get audio onto the cable: move streams, copy the speakers, or loop a hardware input |
 | `morse-logger start [--dial MHz] [--tone Hz]` | start logging in the background |
 | `morse-logger restart` | stop and start again, keeping the dial |

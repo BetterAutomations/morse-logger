@@ -37,6 +37,8 @@ Dongle: ____________  Serial: ______  Antenna: ______  Date: ___________
 | B9 | remove one | `morse-logger cable down --channels 2` | channel 2 gone, **channel 1 untouched** |
 | B10 | reboot | reboot, `morse-logger status` | cable recreated by `start`; Wireplumber may briefly resurrect `cw_cable` — confirm it is not used |
 | B11 | stream restore | `pactl list sink-inputs` after reboot | browser stream is where you left it, or `route-audio --all` fixes it |
+| B12 | saved monitor choice | `cable up --no-monitor`, then a bare `cable up` | monitoring stays off; no new loopback, `config.json` still `"monitor": false` |
+| B13 | echo check | with monitoring on, `morse-logger doctor` | `[ok] one monitor loopback into your speakers`; add a second cable→speakers loopback by hand and it turns `[!!]`, naming both modules |
 
 ## C. Browser behaviour
 
