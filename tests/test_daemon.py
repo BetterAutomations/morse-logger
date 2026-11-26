@@ -182,5 +182,54 @@ class RestoreLoopsTest(RunnerCase):
             self.runner._restore_source_loops()
 
 
+class RouteFlapTest(RunnerCase):
+    """Another logger moving the same stream back must not cause a tug of war."""
+
+    def setUp(self):
+        super().setUp()
+        self.runner.cfg.update({"route_watch": True, "route_apps": ["chrome"]})
+
+    def watch(self, now, moved=(("1", "chrome"),)):
+        with mock.patch.object(daemon.time, "time", return_value=now), \
+                mock.patch.object(daemon.pulse, "route_new_streams",
+                                  return_value=(list(moved), {"1"})) as route:
+            self.runner._route_watch()
+        return route
+
+    def test_one_move_does_not_warn(self):
+        with mock.patch.object(self.runner, "say") as say:
+            self.watch(1000)
+        self.assertNotIn("chrome", self.runner._warned)
+        say.assert_called_once()
+
+    def test_three_moves_in_a_minute_back_off_for_five(self):
+        with mock.patch.object(self.runner, "say") as say:
+            self.watch(1000)
+            self.watch(1010)
+            self.watch(1020)
+        self.assertIn("chrome", self.runner._warned)
+        self.assertEqual(self.runner._backoff["chrome"], 1320)
+        self.assertTrue(any("another program is routing it too" in c.args[0]
+                            for c in say.call_args_list))
+
+    def test_backoff_suppresses_the_move(self):
+        self.runner._backoff["chrome"] = 2000
+        route = self.watch(1999)
+        route.assert_not_called()
+
+    def test_backoff_expires(self):
+        self.runner._backoff["chrome"] = 2000
+        route = self.watch(2001)
+        route.assert_called_once()
+
+    def test_a_quiet_minute_resets_the_history(self):
+        with mock.patch.object(self.runner, "say"):
+            self.watch(1000)
+            self.watch(1010)
+            self.watch(1100)          # more than 60 s after the first two
+        self.assertNotIn("chrome", self.runner._warned)
+        self.assertEqual(len(self.runner._moves["chrome"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

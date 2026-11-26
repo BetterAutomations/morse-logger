@@ -65,6 +65,11 @@ class Runner:
         self.last_speed_check = 0.0
         self.last_silence_check = 0.0
         self.speed_restarts = 0
+        # routing-tug-of-war memory: another logger watching the same app puts
+        # the stream back a second after we move it, so stop competing
+        self._moves = {}
+        self._warned = set()
+        self._backoff = {}
 
     # ---------- helpers ----------
     def say(self, msg):
@@ -326,6 +331,12 @@ class Runner:
         apps = cfg.get("route_apps") or []
         if not apps:
             return
+        now = time.time()
+        # Yield to an app we have already lost a tug of war over: repeating the
+        # move made the audio flap between two cables every few seconds.
+        apps = [a for a in apps if self._backoff.get(a, 0) <= now]
+        if not apps:
+            return
         try:
             moved, self._routed = pulse.route_new_streams(
                 apps=apps, known=getattr(self, "_routed", set()),
@@ -334,6 +345,20 @@ class Runner:
             return
         for idx, app in moved:
             self.say(f"route: {app} started playing (stream {idx}) - moved it to the cable")
+            # Another logger watching the same application moves it back a
+            # fraction of a second later. Warn once, then stop competing for a
+            # while instead of flapping the audio forever.
+            hist = [t for t in self._moves.setdefault(app, []) if now - t <= 60]
+            hist.append(now)
+            self._moves[app] = hist
+            if len(hist) >= 3 and app not in self._warned:
+                self._warned.add(app)
+                self._backoff[app] = now + 300
+                self.say(f"route: {app} has been put back on the cable {len(hist)} "
+                         f"times in a minute - another program is routing it too. "
+                         f"Sharing the audio is the fix: 'morse-logger route-audio "
+                         f"--source <other>_cable.monitor', or turn that program's "
+                         f"own routing watch off. Leaving it alone for 5 minutes.")
 
     def check_silence(self, now):
         """Signal present but nothing decoded for a long time = probably detuned.
