@@ -74,19 +74,43 @@ class DetectTest(unittest.TestCase):
 class ScaledConfigTest(unittest.TestCase):
     """The scale multiplies at read time, so saving never compounds it."""
 
-    def test_slow_profile_stretches_the_live_value(self):
+    def test_slow_profile_keeps_the_stored_value(self):
         with tempfile.TemporaryDirectory() as home:
             with mock.patch.object(cpu, "detect", return_value=(0.2, "slow")):
                 cfg = logger.load_config(home)
             self.assertEqual(cfg["_cpu_profile"], "slow")
-            self.assertEqual(cfg["watchdog_silence_s"], 2400.0)   # 600 * 4
+            self.assertEqual(cfg["_cpu_scale"], 4.0)
+            self.assertEqual(cfg["watchdog_silence_s"], 600)      # never stretched
 
-    def test_fast_profile_leaves_the_value_alone(self):
+    def test_scaled_applies_the_profile_at_read_time(self):
+        with tempfile.TemporaryDirectory() as home:
+            with mock.patch.object(cpu, "detect", return_value=(0.2, "slow")):
+                cfg = logger.load_config(home)
+            self.assertEqual(logger.scaled(cfg, "watchdog_silence_s", 300), 2400.0)
+
+    def test_fast_profile_measures_one(self):
         with tempfile.TemporaryDirectory() as home:
             with mock.patch.object(cpu, "detect", return_value=(0.028, "fast")):
                 cfg = logger.load_config(home)
             self.assertEqual(cfg["_cpu_profile"], "fast")
-            self.assertEqual(cfg["watchdog_silence_s"], 600)
+            self.assertEqual(cfg["_cpu_scale"], 1.0)
+            self.assertEqual(logger.scaled(cfg, "watchdog_silence_s", 300), 600.0)
+
+    def test_scaled_uses_the_default_when_unset(self):
+        cfg = {"_cpu_scale": 2.0}
+        self.assertEqual(logger.scaled(cfg, "route_interval_s", 3), 6.0)
+
+    def test_scaled_without_a_profile_is_the_stored_value(self):
+        self.assertEqual(logger.scaled({}, "watchdog_silence_s", 300), 300.0)
+
+    def test_repeated_loads_do_not_compound(self):
+        with tempfile.TemporaryDirectory() as home:
+            with mock.patch.object(cpu, "detect", return_value=(0.2, "slow")):
+                first = logger.load_config(home)
+                logger.save_config(first, home)
+                second = logger.load_config(home)
+            self.assertEqual(second["watchdog_silence_s"], 600)
+            self.assertEqual(logger.scaled(second, "watchdog_silence_s", 300), 2400.0)
 
     def test_saving_drops_runtime_keys(self):
         with tempfile.TemporaryDirectory() as home:

@@ -211,7 +211,8 @@ class Runner:
         cfg = self.cfg
         # The listen budget must fit inside the watchdog interval: probing blocks
         # the loop, so a short interval cannot afford a 30 s listen.
-        windows = wpm.listen_windows(float(cfg.get("speed_watchdog_interval_s", 240)))
+        windows = wpm.listen_windows(
+            logger.scaled(cfg, "speed_watchdog_interval_s", 240))
         m = wpm.measure_live(
             lambda sec: pulse.capture_samples(sec, rate=8000, source=cfg["input_device"]),
             tone_hz=cfg.get("tone_hz"), windows=tuple(windows),
@@ -284,7 +285,8 @@ class Runner:
         cfg = self.cfg
         if not cfg.get("speed_watchdog", True):
             return
-        if now - self.last_speed_check < float(cfg.get("speed_watchdog_interval_s", 90)):
+        if now - self.last_speed_check < logger.scaled(
+                cfg, "speed_watchdog_interval_s", 90):
             return
         self.last_speed_check = now
         if self.speed_restarts >= int(cfg.get("speed_watchdog_max_restarts", 4)):
@@ -328,7 +330,7 @@ class Runner:
         cfg = self.cfg
         if not cfg.get("watchdog", True):
             return
-        quiet_s = float(cfg.get("watchdog_silence_s", 300))
+        quiet_s = logger.scaled(cfg, "watchdog_silence_s", 300)
         if now - self.last_silence_check < quiet_s:
             return
         if self.last_time and now - self.last_time < quiet_s:
@@ -354,7 +356,7 @@ class Runner:
         self.recent.append((coh_pct, quality))
         if len(self.recent) < self.recent.maxlen:
             return
-        cool = float(self.cfg.get("watchdog_cooldown_s", 180))
+        cool = logger.scaled(self.cfg, "watchdog_cooldown_s", 180)
         if now - self.last_retune < cool:
             return
         # "at or below", so a line that scores exactly the threshold counts as bad

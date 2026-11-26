@@ -915,7 +915,7 @@ def cmd_status(args):
     score = cfg.get("_cpu_score")
     detail = f"measured {score:.3f}s" if score is not None else "set in config"
     print(f"  cpu       profile {prof} ({detail}), speed check every "
-          f"{float(cfg.get('speed_watchdog_interval_s', 0)):.0f}s")
+          f"{logger.scaled(cfg, 'speed_watchdog_interval_s', 0):.0f}s")
     if cfg.get("translate", "gloss") != "off":
         print(f"  glossary  {cfg['translate']} (original tokens kept in [brackets])")
     if st.get("speed_restarts"):

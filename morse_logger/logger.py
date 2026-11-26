@@ -111,20 +111,19 @@ def load_config(home=None, create=True):
     score, profile = _cpu.detect(home)
     cfg["_cpu_score"] = score
     cfg["_cpu_profile"] = profile
-    scale = {"fast": 1.0, "medium": 2.0, "slow": 4.0}[profile]
+    cfg["_cpu_scale"] = {"fast": 1.0, "medium": 2.0, "slow": 4.0}[profile]
     if profile == "slow":
         # cheaper scans and a sleepier loop: the two things that actually cost
-        # time on a 1.2 GHz dual core, beyond the intervals above
+        # time on a 1.2 GHz dual core, beyond the intervals below. Both are
+        # idempotent, unlike a multiplied interval.
         cfg["autotune_step_hz"] = max(50, int(cfg.get("autotune_step_hz", 25)))
         cfg["autotune_refine_hz"] = max(20, int(cfg.get("autotune_refine_hz", 10)))
         cfg["poll_interval_s"] = max(0.4, float(cfg.get("poll_interval_s", 0.2)))
         # a restart costs far more here than a slightly stale speed guess
         cfg["speed_watchdog_change"] = max(0.25, float(cfg.get("speed_watchdog_change", 0.2)))
-    if scale != 1.0:
-        for key in ("speed_watchdog_interval_s", "watchdog_cooldown_s",
-                    "watchdog_silence_s"):
-            if key in cfg:
-                cfg[key] = round(float(cfg[key]) * scale, 1)
+    # Intervals stay exactly as stored; the profile is applied by scaled() when
+    # one is read. Writing the stretched number back made the scale compound on
+    # every save (300 -> 1200 -> 4800 on a slow machine).
     # Every score shares one 0-100 scale, but an early config could hold the
     # fraction form (0.45). Comparing 0.45 against coh=19 silently disabled the
     # threshold, which glossed noise as if it were copy.
@@ -143,6 +142,23 @@ def load_config(home=None, create=True):
         got = want
     cfg["log_dir"] = got
     return cfg
+
+
+def scaled(cfg, key, default):
+    """An interval from the config, stretched for a slow CPU.
+
+    The stored value is the user's; the profile multiplies it here, so saving
+    the config can never fold the scale into it.
+    """
+    try:
+        val = float(cfg.get(key, default))
+    except (TypeError, ValueError):
+        val = float(default)
+    try:
+        scale = float(cfg.get("_cpu_scale") or 1.0)
+    except (TypeError, ValueError):
+        scale = 1.0
+    return val * scale
 
 
 def dial_path(home=None):
