@@ -98,3 +98,20 @@ commit that closed it, so the reasoning stays findable.
   there are two, or when one exists although monitoring is saved off. Proven
   on the dev machine (`[ok] one monitor loopback into your speakers`); the
   fault path and B12/B13 are in docs/HARDWARE-TESTS.md.
+
+- Ported back from js8call-logger: at 100% volume `level` said "raise the
+  volume in the source application", which is wrong when an RTL-SDR feed is
+  driving the cable - there is no application, only rtl_fm's tuner gain.
+  DONE a730d25. pulse.trim_volume() takes `at_full_hint`, defaulting to the
+  old wording; cli._at_full_hint() reports the rtl_fm feed (tracked pid, or any
+  morse_logger.sdr_run on the machine) and cmd_level passes "the cable is fed
+  by rtl_fm, not an application - raise the tuner gain: 'morse-logger sdr start
+  <MHz> --gain <dB>'". Tests: test_pulse.py at-100% with and without the hint,
+  test_cli.py for both feeds.
+
+- Ported back from js8call-logger: its selftest helper `_last_text` picked the
+  *oldest* record in its 25-line window when no --expect was given, so a live
+  check printed yesterday's decode as its evidence.
+  NOT APPLICABLE. That helper was fixed to walk the window newest-first, but
+  morse-logger's selftest reads fldigi's text output from a byte offset rather
+  than the log file, so it has no equivalent bug.
