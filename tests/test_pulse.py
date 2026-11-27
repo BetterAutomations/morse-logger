@@ -358,6 +358,14 @@ class TrimVolumeTest(unittest.TestCase):
         plan = pulse.trim_volume(-30.0, 100, target_db=-14.0, max_step_db=6.0)
         self.assertEqual(plan["action"], "none")
         self.assertIn("100%", plan["reason"])
+        self.assertIn("source application", plan["reason"])
+
+    def test_already_at_100_uses_the_callers_hint(self):
+        plan = pulse.trim_volume(-30.0, 100, target_db=-14.0, max_step_db=6.0,
+                                 at_full_hint="raise the tuner gain")
+        self.assertEqual(plan["action"], "none")
+        self.assertIn("already at 100% - raise the tuner gain", plan["reason"])
+        self.assertNotIn("source application", plan["reason"])
 
     def test_unknown_values(self):
         self.assertEqual(pulse.trim_volume(None, 50)["action"], "none")

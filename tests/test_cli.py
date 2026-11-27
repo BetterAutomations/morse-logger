@@ -424,8 +424,12 @@ class LevelCommandTest(unittest.TestCase):
         self.capture = mock.patch.object(cli.pulse, "capture_samples",
                                          return_value=b"\x00\x40")
         self.capture.start()
+        self.sdr_procs = mock.patch.object(cli, "_sdr_processes",
+                                           return_value=[])
+        self.sdr_procs.start()
 
     def tearDown(self):
+        self.sdr_procs.stop()
         self.capture.stop()
         self.exists.stop()
         self.out.stop()
@@ -478,6 +482,26 @@ class LevelCommandTest(unittest.TestCase):
     def test_missing_source_is_an_error(self):
         with mock.patch.object(cli.pulse, "source_exists", return_value=False):
             self.assertEqual(cli.cmd_level(level_args()), 2)
+
+    def test_quiet_application_at_100_is_told_to_raise_its_volume(self):
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-30.0), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=100.0):
+            self.assertEqual(cli.cmd_level(level_args()), 0)
+        self.assertIn("raise the volume in the source application",
+                      self.out_mock.getvalue())
+
+    def test_quiet_sdr_at_100_is_told_to_raise_the_tuner_gain(self):
+        self.sdr_procs.stop()
+        self.sdr_procs = mock.patch.object(cli, "_sdr_processes",
+                                           return_value=[(4242, "")])
+        self.sdr_procs.start()
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-30.0), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=100.0):
+            self.assertEqual(cli.cmd_level(level_args()), 0)
+        out = self.out_mock.getvalue()
+        self.assertIn("rtl_fm", out)
+        self.assertIn("--gain", out)
+        self.assertNotIn("source application", out)
 
     def test_auto_is_persisted(self):
         self.assertEqual(cli.cmd_level(level_args(auto=True)), 0)

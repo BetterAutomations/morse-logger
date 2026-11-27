@@ -590,13 +590,18 @@ def set_source_volume(name, percent):
 
 
 def trim_volume(measured_db, current_percent, target_db=-14.0,
-                max_step_db=6.0, deadband_db=2.0):
+                max_step_db=6.0, deadband_db=2.0, at_full_hint=None):
     """Work out a new volume percentage to move a measured level toward target.
 
     Pure arithmetic, so it is testable without a sound server. The measured
     level already includes the current volume, so the correction is a plain
     ratio in dB, capped at `max_step_db` so repeated calls converge instead of
     overshooting on a noisy measurement.
+
+    At 100% the volume cannot be raised, so the caller says what to raise
+    instead: `at_full_hint` replaces "raise the volume in the source
+    application", which is wrong when no application feeds the cable (an
+    RTL-SDR feed has only rtl_fm's tuner gain).
     """
     if measured_db is None or current_percent is None:
         return {"action": "none", "percent": None, "delta_db": 0.0,
@@ -615,8 +620,9 @@ def trim_volume(measured_db, current_percent, target_db=-14.0,
     if abs(clamped - current_percent) < 1.0:
         return {"action": "none", "percent": current_percent,
                 "delta_db": round(delta, 1),
-                "reason": ("already at 100% - raise the volume in the source "
-                           "application" if step > 0 else "already at 0%")}
+                "reason": (f"already at 100% - "
+                           f"{at_full_hint or 'raise the volume in the source application'}"
+                           if step > 0 else "already at 0%")}
     return {"action": "raise" if step > 0 else "lower",
             "percent": round(clamped, 1), "delta_db": round(delta, 1),
             "reason": "outside tolerance"}

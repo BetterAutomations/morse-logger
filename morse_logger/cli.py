@@ -1359,6 +1359,24 @@ def cmd_config(args):
     return 0
 
 
+def _at_full_hint(cfg):
+    """What to turn up when the cable source is already at 100%.
+
+    An RTL-SDR feed writes the cable digitally, so there is no application
+    volume to raise - the knob is rtl_fm's tuner gain, passed at launch.
+    """
+    home = cfg.get("_home")
+    running = False
+    try:
+        running = alive(int(open(sdr_pidfile(home)).read().strip()))
+    except (OSError, TypeError, ValueError):
+        pass
+    if running or _sdr_processes():
+        return ("the cable is fed by rtl_fm, not an application - raise the "
+                "tuner gain: 'morse-logger sdr start <MHz> --gain <dB>'")
+    return None
+
+
 def cmd_level(args):
     """Measure the cable's input level and trim the source volume toward target."""
     cfg = logger.load_config(create=False)
@@ -1393,7 +1411,8 @@ def cmd_level(args):
         print("  digital silence - the source is delivering zeros; fix the "
               "source, do not raise the volume")
         return 0
-    plan = pulse.trim_volume(db, vol, target_db=target, max_step_db=step_db)
+    plan = pulse.trim_volume(db, vol, target_db=target, max_step_db=step_db,
+                             at_full_hint=_at_full_hint(cfg))
     if plan["action"] == "none":
         print(f"  {plan['reason']}")
         return 0
