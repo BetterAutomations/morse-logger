@@ -316,6 +316,35 @@ class LevelWatchTest(RunnerCase):
             self.runner.check_level(1010)
         self.assertEqual(capture.call_count, 1)
 
+    def test_an_empty_sdr_band_is_not_trimmed(self):
+        # rtl_fm's noise floor: raising the capture volume would turn the gain
+        # up on nothing and change no decode
+        self.runner.cfg.update({"level_auto": True, "level_auto_interval_s": 20})
+        with mock.patch.object(daemon.feed, "sdr_running", return_value=True), \
+                mock.patch.object(daemon.pulse, "source_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "capture_samples",
+                                  return_value=b"\x01\x01"), \
+                mock.patch.object(daemon.pulse, "peak_dbfs", return_value=-40.5), \
+                mock.patch.object(daemon.pulse, "source_volume", return_value=100.0), \
+                mock.patch.object(daemon.pulse, "set_source_volume") as setv:
+            self.runner.check_level(1000)
+        setv.assert_not_called()
+        self.assertEqual(self.runner.level_dbfs, -40.5)
+
+    def test_a_quiet_application_is_still_trimmed(self):
+        self.runner.cfg.update({"level_auto": True, "level_auto_interval_s": 20})
+        with mock.patch.object(daemon.feed, "sdr_running", return_value=False), \
+                mock.patch.object(daemon.pulse, "source_exists", return_value=True), \
+                mock.patch.object(daemon.pulse, "capture_samples",
+                                  return_value=b"\x01\x01"), \
+                mock.patch.object(daemon.pulse, "peak_dbfs", return_value=-40.5), \
+                mock.patch.object(daemon.pulse, "source_volume", return_value=50.0), \
+                mock.patch.object(daemon.pulse, "set_source_volume",
+                                  return_value=True) as setv, \
+                mock.patch.object(self.runner, "say"):
+            self.runner.check_level(1000)
+        setv.assert_called_once()
+
 
 class RouteFlapTest(RunnerCase):
     """Another logger moving the same stream back must not cause a tug of war."""

@@ -8,8 +8,8 @@ import subprocess
 import sys
 import time
 
-from . import (__version__, autotune, fldigi, logger, pulse, retention, sdr,
-               selftest, translate, wpm)
+from . import (__version__, autotune, feed, fldigi, logger, pulse, retention,
+               sdr, selftest, translate, wpm)
 
 PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -133,10 +133,15 @@ def cmd_doctor(args):
                       "is playing.")
             else:
                 db = wpm.peak_dbfs(sample)
-                if db < -30:
+                verdict = pulse.level_verdict(db, sdr=feed.sdr_running(cfg["_home"]))
+                if verdict == "no signal in the passband":
+                    print(f"  [--] cable level {db} dBFS - no signal in the passband; "
+                          f"an rtl_fm feed has a fixed gain, so this is an empty "
+                          f"band, not a volume to raise")
+                elif verdict == "too quiet":
                     print(f"  [!!] cable level {db} dBFS - far too quiet to decode; "
                           f"raise the application volume (aim for -20 to -10 dBFS)")
-                elif db > -1.5:
+                elif verdict == "clipping":
                     print(f"  [!!] cable level {db} dBFS - clipping; lower the volume")
                 else:
                     print(f"  [ok] cable level {db} dBFS")
@@ -416,37 +421,10 @@ def parse_freq(text):
     return int(v)
 
 
-def sdr_pidfile(home):
-    return os.path.join(home, "run", "sdr.pid")
-
-
-def _sdr_processes():
-    """Every morse_logger.sdr_run on the machine, whatever MORSE_LOGGER_HOME started it.
-
-    A feed started from a different home (a test, a second profile) is invisible
-    to this one's pid file - which is exactly how a stray test feed once played
-    into a live cable for 40 minutes.
-    """
-    found = []
-    for entry in os.listdir("/proc"):
-        if not entry.isdigit():
-            continue
-        try:
-            with open(f"/proc/{entry}/cmdline", "rb") as f:
-                cmd = f.read().replace(b"\x00", b" ").decode("utf-8", "replace")
-        except OSError:
-            continue
-        if "morse_logger.sdr_run" in cmd:
-            home = ""
-            try:
-                env = open(f"/proc/{entry}/environ", "rb").read().split(b"\x00")
-                for kv in env:
-                    if kv.startswith(b"MORSE_LOGGER_HOME="):
-                        home = kv.split(b"=", 1)[1].decode("utf-8", "replace")
-            except OSError:
-                pass
-            found.append((int(entry), home))
-    return found
+# the SDR feed helpers live in feed.py now (the daemon and `input` need them
+# too); these names stay because cmd_sdr and the tests already use them
+sdr_pidfile = feed.sdr_pidfile
+_sdr_processes = feed.sdr_processes
 
 
 def cmd_sdr(args):
@@ -982,6 +960,10 @@ def cmd_status(args):
         print(f"  problem   decoder restarted {st['restarts']}x - nothing is being "
               f"logged; see run/morse-logger.out")
     print(f"  input     {st.get('input_device')}")
+    try:
+        print(f"  feed      {feed.describe(cfg)[0]}")
+    except Exception as exc:                       # never fail status on this
+        print(f"  feed      unknown ({exc})")
     if st.get("dial_mhz"):
         print(f"  dial      {st['dial_mhz']:g} MHz")
     print(f"  cable     sink={st['cable']['sink']} source={st['cable']['source']} "
@@ -1009,6 +991,24 @@ def cmd_status(args):
             nums.append(f"coherence={st['last_coherence']}")
         print(f"  last      {st['last_line']}" + (f"  ({', '.join(nums)})" if nums else ""))
     print(f"  logs      {st['log_dir']}")
+    return 0
+
+
+def cmd_input(args):
+    """Show what is feeding the decoder right now (read-only).
+
+    Distinct from `status`: status says whether the process is healthy, this
+    says which audio is arriving - the question behind a log that stays empty.
+    """
+    cfg = logger.load_config(create=False)
+    try:
+        summary, detail = feed.describe(cfg)
+    except Exception as exc:                     # no sound server, no pactl
+        print(f"cannot inspect the audio setup: {exc}")
+        return 2
+    print(f"input    {summary}")
+    for line in detail:
+        print(line)
     return 0
 
 
@@ -1378,12 +1378,7 @@ def _at_full_hint(cfg):
     volume to raise - the knob is rtl_fm's tuner gain, passed at launch.
     """
     home = cfg.get("_home")
-    running = False
-    try:
-        running = alive(int(open(sdr_pidfile(home)).read().strip()))
-    except (OSError, TypeError, ValueError):
-        pass
-    if running or _sdr_processes():
+    if home and feed.sdr_running(home):
         return ("the cable is fed by rtl_fm, not an application - raise the "
                 "tuner gain: 'morse-logger sdr start <MHz> --gain <dB>'")
     return None
@@ -1414,7 +1409,8 @@ def cmd_level(args):
         return 2
     db = pulse.peak_dbfs(sample)
     vol = pulse.source_volume(src)
-    verdict = ("too quiet" if db < -20 else "clipping" if db > -10 else "ok")
+    sdr_feed = feed.sdr_running(cfg["_home"])
+    verdict = pulse.level_verdict(db, sdr=sdr_feed)
     if vol is None:
         print(f"level: {db} dBFS  volume unknown  target {target:g} dBFS  [{verdict}]")
     else:
@@ -1422,6 +1418,10 @@ def cmd_level(args):
     if db <= -80:
         print("  digital silence - the source is delivering zeros; fix the "
               "source, do not raise the volume")
+        return 0
+    if verdict == "no signal in the passband":
+        print("  that is an rtl_fm feed's noise floor, not a volume problem - "
+              "rtl_gain sets it, and it moves by a few dB, not fourteen")
         return 0
     plan = pulse.trim_volume(db, vol, target_db=target, max_step_db=step_db,
                              at_full_hint=_at_full_hint(cfg))
@@ -1540,6 +1540,9 @@ def build_parser():
     sta = sub.add_parser("status", help="show logger status")
     sta.add_argument("--json", action="store_true")
     sta.set_defaults(func=cmd_status)
+
+    inp = sub.add_parser("input", help="what is feeding the decoder, right now")
+    inp.set_defaults(func=cmd_input)
 
     t = sub.add_parser("tail", help="show today's log")
     t.add_argument("-n", "--lines", type=int, default=20)

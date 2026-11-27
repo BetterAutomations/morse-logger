@@ -209,6 +209,32 @@ def _module_blocks():
     return out
 
 
+def loopback_modules():
+    """[(module id, source, sink)] for every loaded module-loopback.
+
+    Reads the Argument line, which is where `pactl load-module` puts the source
+    and sink; a block without them (older module syntax) comes back with None
+    for that side rather than being guessed at.
+    """
+    out = []
+    for mid, block in _module_blocks():
+        if "module-loopback" not in block:
+            continue
+        src = sink = None
+        for line in block.splitlines():
+            line = line.strip()
+            if not line.startswith("Argument:"):
+                continue
+            for pair in line.split(":", 1)[1].split():
+                key, _, val = pair.partition("=")
+                if key == "source":
+                    src = val
+                elif key == "sink":
+                    sink = val
+        out.append((mid, src, sink))
+    return out
+
+
 def _monitor_active():
     """True if a loopback from our cable monitor already exists."""
     for _mid, block in _module_blocks():
@@ -626,6 +652,22 @@ def trim_volume(measured_db, current_percent, target_db=-14.0,
     return {"action": "raise" if step > 0 else "lower",
             "percent": round(clamped, 1), "delta_db": round(delta, 1),
             "reason": "outside tolerance"}
+
+
+def level_verdict(db, sdr=False):
+    """One word for the measured level.
+
+    A low reading means two different things. Behind a WebSDR or a line-in it
+    means the source volume is down, which the user can fix. Behind `rtl_fm`
+    there is no volume: the demodulated output follows what is in the passband
+    at a fixed gain, so a low peak is simply nothing being there - an empty
+    band, not a setting to correct.
+    """
+    if db < -20:
+        return "no signal in the passband" if sdr else "too quiet"
+    if db > -10:
+        return "clipping"
+    return "ok"
 
 
 def cable_status():

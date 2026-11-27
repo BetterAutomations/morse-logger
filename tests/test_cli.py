@@ -404,6 +404,24 @@ def level_args(**kw):
     return argparse.Namespace(**base)
 
 
+class InputCommandTest(unittest.TestCase):
+    def test_prints_the_summary_then_the_detail(self):
+        cfg = {"_home": "/tmp"}
+        with mock.patch.object(cli.logger, "load_config", return_value=cfg), \
+                mock.patch.object(cli.feed, "describe",
+                                  return_value=("fixture -> cable", ["device   x"])), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(cli.cmd_input(argparse.Namespace()), 0)
+        self.assertEqual(out.getvalue(), "input    fixture -> cable\ndevice   x\n")
+
+    def test_no_sound_server_is_an_error_not_a_traceback(self):
+        with mock.patch.object(cli.logger, "load_config", return_value={"_home": "/tmp"}), \
+                mock.patch.object(cli.feed, "describe", side_effect=OSError("no pactl")), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(cli.cmd_input(argparse.Namespace()), 2)
+        self.assertIn("cannot inspect the audio setup: no pactl", out.getvalue())
+
+
 class LevelCommandTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -424,8 +442,8 @@ class LevelCommandTest(unittest.TestCase):
         self.capture = mock.patch.object(cli.pulse, "capture_samples",
                                          return_value=b"\x00\x40")
         self.capture.start()
-        self.sdr_procs = mock.patch.object(cli, "_sdr_processes",
-                                           return_value=[])
+        self.sdr_procs = mock.patch.object(cli.feed, "sdr_running",
+                                           return_value=False)
         self.sdr_procs.start()
 
     def tearDown(self):
@@ -492,16 +510,39 @@ class LevelCommandTest(unittest.TestCase):
 
     def test_quiet_sdr_at_100_is_told_to_raise_the_tuner_gain(self):
         self.sdr_procs.stop()
-        self.sdr_procs = mock.patch.object(cli, "_sdr_processes",
-                                           return_value=[(4242, "")])
+        self.sdr_procs = mock.patch.object(cli.feed, "sdr_running",
+                                           return_value=True)
         self.sdr_procs.start()
-        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-30.0), \
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-18.0), \
                 mock.patch.object(cli.pulse, "source_volume", return_value=100.0):
             self.assertEqual(cli.cmd_level(level_args()), 0)
         out = self.out_mock.getvalue()
         self.assertIn("rtl_fm", out)
         self.assertIn("--gain", out)
         self.assertNotIn("source application", out)
+
+    def test_empty_sdr_band_is_not_a_volume_problem(self):
+        self.sdr_procs.stop()
+        self.sdr_procs = mock.patch.object(cli.feed, "sdr_running",
+                                           return_value=True)
+        self.sdr_procs.start()
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-40.5), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=80.0), \
+                mock.patch.object(cli.pulse, "set_source_volume") as setv:
+            self.assertEqual(cli.cmd_level(level_args(set=True)), 0)
+        setv.assert_not_called()
+        out = self.out_mock.getvalue()
+        self.assertIn("[no signal in the passband]", out)
+        self.assertIn("not a volume problem", out)
+
+    def test_quiet_application_is_a_volume_problem(self):
+        with mock.patch.object(cli.pulse, "peak_dbfs", return_value=-40.5), \
+                mock.patch.object(cli.pulse, "source_volume", return_value=50.0), \
+                mock.patch.object(cli.pulse, "set_source_volume",
+                                  return_value=True) as setv:
+            self.assertEqual(cli.cmd_level(level_args(set=True)), 0)
+        setv.assert_called_once()
+        self.assertIn("[too quiet]", self.out_mock.getvalue())
 
     def test_auto_is_persisted(self):
         self.assertEqual(cli.cmd_level(level_args(auto=True)), 0)

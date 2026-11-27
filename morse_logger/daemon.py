@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from collections import deque
 
-from . import autotune, fldigi, logger, pulse, translate, wpm
+from . import autotune, feed, fldigi, logger, pulse, translate, wpm
 
 
 def notify_desktop(text):
@@ -426,6 +426,11 @@ class Runner:
                 return
             db = pulse.peak_dbfs(pulse.capture_samples(1.0, rate=8000, source=src))
             self.level_dbfs = db
+            if pulse.level_verdict(db, sdr=feed.sdr_running(cfg.get("_home") or "")) == \
+                    "no signal in the passband":
+                # an rtl_fm feed's noise floor is an empty band, not a volume
+                # to raise: trimming here would turn the gain up on nothing
+                return
             target = float(cfg.get("level_target_db", -14.0))
             plan = pulse.trim_volume(
                 db, pulse.source_volume(src), target_db=target,

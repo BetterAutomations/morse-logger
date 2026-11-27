@@ -332,6 +332,33 @@ class VolumeTest(unittest.TestCase):
         self.assertEqual(calls[1][-1], "0%")
 
 
+class LevelVerdictTest(unittest.TestCase):
+    """A quiet feed means two different things, and only one is fixable."""
+
+    def test_quiet_cable_is_a_volume_problem(self):
+        self.assertEqual(pulse.level_verdict(-30.0), "too quiet")
+
+    def test_quiet_sdr_is_an_empty_band(self):
+        # rtl_fm has no volume: a low peak is nothing in the passband.
+        self.assertEqual(pulse.level_verdict(-30.0, sdr=True),
+                         "no signal in the passband")
+
+    def test_loud_is_clipping_on_both(self):
+        for sdr in (False, True):
+            self.assertEqual(pulse.level_verdict(-3.0, sdr=sdr), "clipping")
+
+    def test_in_between_is_ok(self):
+        for sdr in (False, True):
+            self.assertEqual(pulse.level_verdict(-15.0, sdr=sdr), "ok")
+
+    def test_thresholds_are_the_ones_documented(self):
+        self.assertEqual(pulse.level_verdict(-20.0), "ok")
+        self.assertEqual(pulse.level_verdict(-20.1, sdr=True),
+                         "no signal in the passband")
+        self.assertEqual(pulse.level_verdict(-10.0), "ok")
+        self.assertEqual(pulse.level_verdict(-9.9), "clipping")
+
+
 class TrimVolumeTest(unittest.TestCase):
     def test_within_tolerance_is_left_alone(self):
         plan = pulse.trim_volume(-14.5, 80)
