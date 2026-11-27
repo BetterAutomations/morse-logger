@@ -71,6 +71,11 @@ Dongle: ____________  Serial: ______  Antenna: ______  Date: ___________
 | D7 | USB power | long cable / hub | no `-5` or `-9` errors in `dmesg` during a 10-minute run |
 | D8 | two sticks | two dongles plugged in | `sdr --list` shows both with serials; `sdr 7.03 --device <serial>` drives only that one; after a replug the serial still selects it (indexes move, serials do not) |
 | D9 | hot unplug | pull the dongle mid-run | an event is logged, restarts back off 30 s, 60 s, 120 s..., and plugging it back recovers without restarting the daemon |
+| D10 | what is feeding it | `morse-logger sdr start 7.03 --gain 30`, then `morse-logger input` | `input    RTL-SDR: rtl_fm (pid N) at 7.030 MHz USB`, an `rtl` line with the full argv and `(gain 30)`, and **no** `stream` line for pacat/pw-cat (the pipe is the feed, not a second program) |
+| D11 | empty band is not a volume problem | on a dead band, `morse-logger level` and `morse-logger doctor` | `[no signal in the passband]` / `[--] ... empty band, not a volume to raise`; neither suggests an application volume; `level --auto` for 45 s leaves the capture volume unchanged |
+| D12 | --auto still protects | same feed, then play a fixture into the cable (`pw-play fixture.wav`) with `level --auto` on | one pass later: `volume lowered/raised to N%` — the empty-band skip does not disable the check itself |
+| D13 | configured but dead | `morse-logger sdr --stop`, then `morse-logger input` | `RTL-SDR configured, but rtl_fm is not running` |
+| D14 | stray feed | start a second feed from another `MORSE_LOGGER_HOME`, run `input` | the `rtl` line shows it (pid, real frequency); `doctor` still calls it a stray feed |
 
 ## E. `scan` (survey)
 

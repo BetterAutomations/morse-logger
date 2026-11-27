@@ -84,7 +84,7 @@ browser or the dongle changes the audio pitch; run `tune --auto` (and
 | symptom | meaning | fix |
 |---|---|---|
 | `q=` high, `coh=` low | the decoder is slicing noise | check level and tone; narrow the filter |
-| `q= 0.0` with `OK` | decoder healthy, nothing to decode | is anything playing into the cable? |
+| `q= 0.0` with `OK` | decoder healthy, nothing to decode | `morse-logger input` says what is (not) feeding the cable |
 | `tune` says "clipped at 0 dBFS" | volume too high | back it off to −12 dBFS |
 | `wpm` says "very quiet" | signal too weak to measure | raise volume or RF gain |
 | letters split (`T E E E`) | speed or filter mismatch | `wpm --auto`, then widen the filter |
@@ -304,6 +304,7 @@ run `morse-logger tune --auto`.
 | `morse-logger start [--dial MHz] [--tone Hz]` | start logging in the background |
 | `morse-logger restart` | stop and start again, keeping the dial |
 | `morse-logger stop` / `morse-logger status [--json]` | lifecycle and health |
+| `morse-logger input` | what is feeding the decoder right now (stick, program, loop, or nothing) |
 | `morse-logger tune [--auto\|--tone Hz]` | set the decoder CW tone |
 | `morse-logger dial [MHz] [--clear]` | show/set the dial frequency stamped on new lines, **live** |
 | `morse-logger wpm [--auto\|--set N]` | measure the fist's speed, or set it - applied live |
@@ -554,7 +555,7 @@ tool sets all of them:
 **Clipping beats all of it.** A signal at 0 dBFS sounds perfectly clear and
 decodes as garbage, because the tops of the marks are flattened and the
 intermodulation lands inside the filter. `morse-logger doctor` flags a cable
-level above -1.5 dBFS for that reason; aim for about -12 dBFS.
+level above -10 dBFS for that reason; aim for about -12 dBFS.
 
 `morse-logger level` measures the cable source's peak level (`-14 dBFS` target
 by default), says what it would do, and with `--set` moves the source volume
@@ -562,6 +563,12 @@ toward the target in steps of at most `level_max_step_db` (6 dB). It refuses to
 amplify digital silence and never passes 100%, so it cannot turn up a dead
 stream. `level --auto` lets the daemon repeat that every
 `level_auto_interval_s` (20 s) as the source drifts; `level --no-auto` stops it.
+
+With an `rtl_fm` feed there is no volume to turn: a low reading there means an
+empty passband, not a setting to fix. Both `level` and `doctor` say so instead
+of offering a correction, and `--auto` leaves the capture volume alone while the
+band is empty. Gain is the knob, set at launch (`sdr --gain`), and it moves the
+reading by a few dB, not fourteen.
 
 ## Keeping junk out of the log
 
@@ -854,6 +861,33 @@ Log lines tell you when any of it happens:
 | `speed_watchdog` | true | periodic speed check (60 s on a fast machine) |
 | `speed_watchdog_max_restarts` | 4 | restarts per session |
 | `watchdog_silence_s` | 600 | quiet time before the silence watchdog looks |
+
+## What is feeding the decoder
+
+`status` says whether the process is healthy; `input` says which audio is
+arriving. That difference is the answer to a log that stays empty. It reads the
+sound server and `/proc`, never the config - config says what was asked for:
+
+    $ morse-logger input
+    input    Google Chrome (browser) -> morse-logger_cable
+    device   morse-logger_cable_src (the cable)
+    stream   42  Google Chrome (browser)  "NA5B WebSDR"  -> morse-logger_cable
+
+A stick is named from its own `rtl_fm` command line, so you see where it is
+really tuned (and the gain it was started with):
+
+    input    RTL-SDR: rtl_fm (pid 8123) at 7.030 MHz USB
+    device   morse-logger_cable_src (the cable)
+    rtl      pid 8123  /usr/bin/rtl_fm -f 7030000 -M usb -s 24000 ...  (gain 40.2)
+
+The other answers: `<device> looped into morse-logger_cable` for a hardware
+input (`route-audio --source`), `N programs -> morse-logger_cable (chrome, vlc)`
+when several play at once, `RTL-SDR configured, but rtl_fm is not running` when
+the pid file outlived the feed, `missing <name> (configured, ...)` when a saved
+source loop is gone, and `morse-logger_cable: nothing feeding it` - the line that
+answers the empty log.
+
+`status` carries the same first line as `feed`.
 
 ## Retune and silence watchdogs
 

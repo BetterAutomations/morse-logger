@@ -341,6 +341,7 @@ Every command (full list, identical to "morse-logger --help")
   morse-logger start [--dial MHz]     start logging in the background
   morse-logger stop                   stop logging
   morse-logger status [--json]        health, tone, quality, lines logged
+  morse-logger input                  what is feeding the decoder right now
   morse-logger tail [-f] [filters]    read the log (filters: --min-quality,
                                --min-coherence, --min-chars, --raw)
   morse-logger tune [--auto]          set or auto-detect the decoder CW tone

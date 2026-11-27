@@ -115,3 +115,42 @@ commit that closed it, so the reasoning stays findable.
   NOT APPLICABLE. That helper was fixed to walk the window newest-first, but
   morse-logger's selftest reads fldigi's text output from a byte offset rather
   than the log file, so it has no equivalent bug.
+
+- Ported back from js8call-logger: `level --auto` on an RTL-SDR feed trimmed the
+  capture volume toward -14 dBFS on an empty band, where a low peak is nothing
+  in the passband rather than a volume to raise (measured there: gain 0 -> 49.6
+  moved the reading only from -40.5 to -28.1 dBFS).
+  DONE e195e5f. pulse.level_verdict(db, sdr=False) is the single word for a
+  level ("too quiet" / "no signal in the passband" / "clipping" / "ok");
+  feed.sdr_running(home) answers "is a stick feeding this cable" (pid file, or
+  any morse_logger.sdr_run). cmd_level, doctor and daemon.check_level all use
+  the pair: level stops before trim_volume with "that is an rtl_fm feed's noise
+  floor, not a volume problem", doctor prints the empty band as `[--]` rather
+  than `[!!]`, and --auto returns early, so the capture volume is left alone
+  while the band is empty. Clipping protection and the digital-silence refusal
+  are unchanged. doctor's quiet/clipping bounds moved to level's documented
+  -20/-10 dBFS (they were -30/-1.5, contradicting its own "aim for -20 to -10"
+  advice). Tests: test_pulse.py LevelVerdictTest, test_cli.py for both feeds,
+  test_daemon.py for the skip and for a quiet application still being trimmed.
+  The live half (a real dongle, an empty band, then a fixture) is D10-D14 in
+  docs/HARDWARE-TESTS.md; verified here without a stick: `input` named a
+  pw-play stream playing a file into a real cable, `level` at 100% gave the
+  application-volume advice, and after `cable down` it said `no such sink`.
+
+- Ported back from js8call-logger: say what the decoder is listening to.
+  DONE e195e5f. morse_logger/feed.py gathers from the sound server and /proc,
+  never from config: pulse.loopback_modules() (copied) turns `pactl list
+  modules` into (id, source, sink), sink_input_details() already gave
+  {index, app, stream, sink_name}, and rtl_processes() reads each rtl_fm argv
+  for -f/-M/-g/-p. Answers: `Google Chrome (browser) -> morse-logger_cable` with
+  the tab title in the detail line, `<device> looped into ...` for a hardware
+  input, `RTL-SDR: rtl_fm (pid N) at 7.030 MHz USB`, `RTL-SDR configured, but
+  rtl_fm is not running`, `missing <name> (configured, ...)` for a saved loop
+  that is gone, `no such sink - create it with 'morse-logger cable up'`, and
+  `nothing feeding it`. Our own monitor loopback is excluded by module id
+  (pulse.is_own_loopback), and rtl_fm's pacat/pw-cat pipe is not reported as a
+  second program. `morse-logger input` prints summary + detail lines; `status`
+  adds the summary as a `feed` line and never fails on it. Read-only: the device
+  chooser stays in `config`. Tests: tests/test_feed.py (22 cases, no pactl
+  needed). Documented in README's command table and a new "What is feeding the
+  decoder" section; tools/audit_verbs.py is clean (21 verbs).
