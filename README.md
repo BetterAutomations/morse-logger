@@ -22,7 +22,8 @@ decoder is still in progress.)
 * Automatic CPU detection for slower computers such as an Intel Core 2 Duo
 SU9300 (released in 2008).
 
-Requires Ubuntu 26.04 LTS for the offline installer. On other distributions use
+Requires Ubuntu 26.04 LTS or 26.10 for the offline installer (one package set
+per release lives in `bundle/debs/<codename>/`). On other distributions use
 the Flatpak in [`flatpak/`](flatpak/README.md), which also works offline
 (single-file bundle or a USB repository).
 
@@ -108,32 +109,45 @@ odd".
 
 ## Install (offline)
 
-The bundle directory contains everything: ~240 `.deb` files (fldigi, Xvfb,
-pulse/pipewire tools, python3 + stdlib) and the application.
+The bundle carries one package set per Ubuntu release: `debs/resolute` (26.04)
+and `debs/stonking` (26.10) - 253 and 255 `.deb` files, 144 MB and 149 MB. Each
+set is the dependency closure of fldigi (and its FLTK/X libraries), Xvfb (fldigi
+is a GUI program), the pulse/pipewire CLI tools (`pactl`, `parec`, `pw-play`),
+python3 with its stdlib, `rtl-sdr` (`rtl_fm`, `rtl_test`), `libnotify-bin` and
+`ffmpeg` (retime reads mp3/wav). Base packages (libc, glib, openssl, ...) are
+left out on purpose: every stock Ubuntu/Lubuntu has them and an offline copy of
+libc is the one thing you never want to force.
 
     sudo ./install.sh              # install; no network needed
     ./install.sh --check           # verify an install, change nothing
     sudo ./install.sh --selftest   # install, then decode a synthetic signal
     sudo ./install.sh --uninstall  # remove the program (logs are kept)
+    sudo ./install.sh --suite=stonking   # force a package set
 
-`install.sh` runs `dpkg` in repeated passes (several packages Pre-Depend on
-others in the same set), never downgrades what is already installed, copies the
-app to `/opt/morse-logger`, writes `/usr/local/bin/morse-logger`, and finishes by
-verifying every binary, library and import. It refuses to print success if the
-dependency layer is not actually working.
+`install.sh` picks the set named by `/etc/os-release` (a single-set bundle falls
+back to that set with a warning; `--suite=` overrides), verifies
+`checksums.sha256` before touching anything, runs `dpkg` in repeated passes
+(several packages Pre-Depend on others in the same set), never downgrades what
+is already installed, copies the app to `/opt/morse-logger`, writes
+`/usr/local/bin/morse-logger`, and finishes by verifying every binary, library
+and import. It refuses to print success if the dependency layer is not actually
+working.
 
-Tested in a bare `ubuntu:26.04` container with networking disabled:
+Verify the claim yourself, with networking disabled:
 
     docker run --rm --network none -v "$PWD/bundle:/bundle:ro" ubuntu:26.04 \
         bash /bundle/install.sh
 
-To refresh the bundle after an OS upgrade (needs internet, same release):
+To rebuild the bundle (needs internet; packages come from the Ubuntu archive):
 
-    ./refresh-bundle.sh            # re-downloads the closure, rewrites checksums
+    ./refresh-bundle.sh                    # this machine's release
+    ./refresh-bundle.sh resolute stonking  # 26.04 and 26.10 in one bundle
 
-`runtime/` is an unpacked copy of the same `.deb` set, used so you can run the
-logger straight from this directory without root (`python3 -m morse_logger.cli doctor`);
-`install.sh` does not use it.
+`tools/fetch-offline-packages.sh <suite>` does the per-release download with a
+private apt (empty dpkg status), so the closure is what a blank machine needs,
+not what this one already has. `runtime/` is an unpacked copy of the same `.deb`
+set, used so you can run the logger straight from this directory without root
+(`python3 -m morse_logger.cli doctor`); `install.sh` does not use it.
 
 ## What is in the repository
 
@@ -141,11 +155,12 @@ logger straight from this directory without root (`python3 -m morse_logger.cli d
 morse_logger/        the program (standard library only - no pip, no venv)
 tests/               unit tests (unittest, no audio, no decoder, no root)
 tools/audit_verbs.py checks that every verb is documented
+tools/fetch-offline-packages.sh  downloads one release's package closure
 docs/DESIGN.md       architecture, measurements, bundle construction (not needed to use it)
 docs/HARDWARE-TESTS.md  the checks that need a real dongle, sound card or clean machine
 install.sh           offline installer (self-locating; prompts for the data directory)
-refresh-bundle.sh    rebuilds bundle/ from the network
-bundle/   runtime/   NOT in git: ~340 MB of .deb files and an unpacked copy of
+refresh-bundle.sh    rebuilds bundle/ from the network (one or more releases)
+bundle/   runtime/   NOT in git: ~293 MB of .deb files and an unpacked copy of
                      them. Rebuild with ./refresh-bundle.sh when you need them.
 test_recordings/     NOT in git beyond the directory: the W1AW audio is large and
                      is ARRL material. Drop your own .mp3/.txt pairs there to use

@@ -99,9 +99,40 @@ the advertised 5.
 
 ## Bundling
 
-`refresh-bundle.sh` resolves the full dependency closure with
-`apt-cache depends --recurse`, downloads it, copies the app, writes
-`checksums.sha256` and stamps `os-release` so `install.sh` can warn when the
-bundle is being used on a different Ubuntu release. Keep the bundle directory on
-a USB stick with the radio — that is the disaster-recovery copy.
+`tools/fetch-offline-packages.sh <suite>` builds one release's package set into
+`bundle/debs/<suite>/`, and `refresh-bundle.sh` calls it for each suite you name
+(default: this machine's codename), copies the app, and writes
+`checksums.sha256`. Packages come from the Ubuntu archive for that suite, read
+by a *private* apt with its own empty `Dir::State::status`, so the closure is
+what a blank machine needs rather than what this one already has. Essential and
+Priority `required`/`important` packages are dropped: every stock install has
+them, they are the packages apt would fight over offline, and leaving them out
+is what keeps a 26.04 set usable on 26.10 (present ones are skipped, never
+downgraded). python3 is the exception - it is `important`, but a minimal image
+has no interpreter at all, so `python3-minimal`, `python3<X>-minimal` and
+`libpython3<X>-stdlib` are kept deliberately (the stdlib is what makes
+`import xmlrpc.client` work).
+
+Current sizes: `debs/resolute` (26.04) 253 packages / 144 MB,
+`debs/stonking` (26.10) 255 / 149 MB, bundle 293 MB.
+
+How that was verified without a second machine:
+
+* package closure - every `Depends`/`Pre-Depends` of every bundled `.deb`,
+  resolved against the suite's archive index: the only unsatisfied names are
+  `required`/`important` base packages (libc6, libglib, libssl, libstdc++...),
+  zero surprises, in both sets;
+* file level - all `.deb`s extracted, every ELF's `NEEDED` sonames looked up in
+  the extracted tree: the unresolved ones are exactly that same base set, so
+  nothing from a bundled package is missing;
+* runtime - the extracted `usr/bin/python3` (with `PYTHONHOME` pointing at the
+  extracted tree) imports `xmlrpc.client`, `sqlite3`, `gzip`, `lzma`, `ssl`
+  and runs `python3 -m morse_logger.cli --help` from `bundle/app`.
+
+A `docker run --network none ubuntu:26.04` install is still the honest end-to-end
+test (A3 in docs/HARDWARE-TESTS.md); it was last run against the earlier
+single-set bundle and has not been repeated since the per-release split.
+
+Keep the bundle directory on a USB stick with the radio - that is the
+disaster-recovery copy.
 

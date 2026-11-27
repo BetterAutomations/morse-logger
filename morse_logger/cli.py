@@ -181,9 +181,21 @@ def cmd_doctor(args):
         pass
     bundle = os.path.join(PKG_PARENT, "bundle")
     if os.path.isdir(bundle):
-        debs = len([f for f in os.listdir(os.path.join(bundle, "debs"))
-                    if f.endswith(".deb")]) if os.path.isdir(os.path.join(bundle, "debs")) else 0
-        chk("offline bundle present", debs > 0, f"{debs} packages in {bundle}")
+        debs_dir = os.path.join(bundle, "debs")
+        count = 0
+        sets = []
+        for entry in sorted(os.listdir(debs_dir)) if os.path.isdir(debs_dir) else []:
+            path = os.path.join(debs_dir, entry)
+            if os.path.isdir(path):
+                n = len([f for f in os.listdir(path) if f.endswith(".deb")])
+                if n:
+                    sets.append(f"{entry} {n}")
+                    count += n
+            elif entry.endswith(".deb"):
+                count += 1
+        chk("offline bundle present", count > 0,
+            f"{count} packages ({', '.join(sets)})" if sets
+            else f"{count} packages in {bundle}")
     print("\n" + ("All checks passed." if ok else "Some checks FAILED (see above)."))
     return 0 if ok else 1
 

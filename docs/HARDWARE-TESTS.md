@@ -15,12 +15,14 @@ Dongle: ____________  Serial: ______  Antenna: ______  Date: ___________
 
 | # | test | command | expect |
 |---|---|---|---|
-| A1 | clean install | `sudo ./install.sh` on a fresh Ubuntu 26.04 | asks for the data root, installs, creates `/opt/morse-logger`, `morse-logger` on PATH |
+| A1 | clean install | `sudo ./install.sh` on a fresh Ubuntu 26.04 | says `packages: debs/resolute`, asks for the data root, installs, creates `/opt/morse-logger`, `morse-logger` on PATH |
 | A2 | selftest | `sudo ./install.sh --selftest` | decode self-test passes without a network connection |
 | A3 | truly offline | `docker run --rm --network none -v "$PWD/bundle:/bundle:ro" ubuntu:26.04 bash -c '/bundle/install.sh'` | completes; `morse-logger --version` works |
 | A4 | custom root | `MORSE_LOGGER_HOME=/srv/stations ./install.sh` | wrapper exports that path; `morse-logger status` reports it |
 | A5 | missing bundle | delete `bundle/debs`, run `install.sh` | refuses with a message naming `refresh-bundle.sh` |
 | A6 | legacy cleanup | install over a machine with `/usr/local/bin/cwlog` | old command removed, `~/.cw-logger` left as a symlink or migrated |
+| A7 | 26.10 set | `sudo ./install.sh` on a fresh Lubuntu 26.10 | says `packages: debs/stonking`; `fldigi`, `rtl_fm`, `parec` all run (`doctor` is clean apart from "not running") |
+| A8 | tampered bundle | append a bogus line to `bundle/checksums.sha256`, run `install.sh` | refuses before running `dpkg`: "checksums do not match" |
 
 ## B. Audio plumbing (real PulseAudio / PipeWire)
 

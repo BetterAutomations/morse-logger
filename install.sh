@@ -10,8 +10,9 @@
 #   ./install.sh --check           verify an existing install, change nothing
 #   sudo ./install.sh --uninstall  remove the program (logs are kept)
 #   sudo ./install.sh --selftest   install, then decode a synthetic CW signal
+#   sudo ./install.sh --suite=N    force debs/N (default: this release's codename)
 #
-# Nothing is downloaded. Everything comes from ./debs/.
+# Nothing is downloaded. Everything comes from ./debs/<codename>/.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -29,13 +30,15 @@ BINDIR=/usr/local/bin
 CHECK=0
 UNINSTALL=0
 SELFTEST=0
+WANT_SUITE=
 
 for arg in "$@"; do
   case "$arg" in
     --check) CHECK=1 ;;
     --uninstall) UNINSTALL=1 ;;
     --selftest) SELFTEST=1 ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    --help|-h) sed -n '2,20p' "$0"; exit 0 ;;
+    --suite=*) WANT_SUITE=${arg#--suite=} ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -103,23 +106,56 @@ say "  bundle:  $HERE"
 [[ -d "$HERE/debs" ]] || die "no debs/ directory in $HERE - is the bundle complete? (run it as: sudo ./bundle/install.sh)"
 [[ -d "$HERE/app/morse_logger" ]] || die "no app/morse_logger directory in $HERE - is the bundle complete?"
 
-# OS sanity (warn only: a newer release may still work)
+# OS sanity: the per-release deb closure must match the release. A bundle built
+# for another Ubuntu release still installs the packages this machine lacks, but
+# it is not the supported path - say so instead of guessing silently.
+host_os=unknown
+host_suite=
 if [[ -f /etc/os-release ]]; then
   . /etc/os-release
+  host_os=${VERSION_ID:-unknown}
+  host_suite=${VERSION_CODENAME:-}
   say "  target:  ${PRETTY_NAME:-unknown}  $(dpkg --print-architecture 2>/dev/null)"
 fi
-if [[ -f "$HERE/os-release" ]]; then
-  bundle_os=$(grep -E '^VERSION_ID=' "$HERE/os-release" | cut -d'"' -f2)
-  host_os=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d'"' -f2)
-  if [[ -n "${bundle_os:-}" && "$bundle_os" != "$host_os" ]]; then
-    warn "bundle was built for Ubuntu $bundle_os, this is $host_os"
-    warn "package versions may not match; continuing anyway"
+
+# --- which package set? ---------------------------------------------------------
+# debs/<codename>/ is the normal layout; a flat debs/*.deb is an older bundle.
+DEBDIR=
+if [[ -n "$WANT_SUITE" ]]; then
+  DEBDIR="$HERE/debs/$WANT_SUITE"
+  [[ -d "$DEBDIR" ]] || die "no debs/$WANT_SUITE in this bundle (have: $(ls -1 "$HERE"/debs 2>/dev/null | tr '\n' ' '))"
+elif [[ -n "$host_suite" && -d "$HERE/debs/$host_suite" ]]; then
+  DEBDIR="$HERE/debs/$host_suite"
+elif compgen -G "$HERE/debs/*.deb" >/dev/null; then
+  DEBDIR="$HERE/debs"
+  warn "this bundle has no per-release directory - using the flat debs/ set"
+else
+  mapfile -t suites < <(ls -1 "$HERE/debs" 2>/dev/null || true)
+  if [[ ${#suites[@]} -eq 1 ]]; then
+    DEBDIR="$HERE/debs/${suites[0]}"
+    warn "bundle has packages for '${suites[0]}', this is '${host_suite:-unknown}' ($host_os)"
+    warn "package versions may not match; continuing (use --suite= to pick)"
+  else
+    die "no packages for Ubuntu ${host_suite:-$host_os}; this bundle has: ${suites[*]:-nothing}
+       rebuild it on a machine running this release: ./refresh-bundle.sh"
   fi
+fi
+say "  packages: debs/$(basename "$DEBDIR")"
+
+# ------------------------------------------------------------------ integrity
+# Verify before installing: a truncated .deb from a copied USB stick would
+# otherwise fail deep inside dpkg with a confusing message.
+if [[ -f "$HERE/checksums.sha256" ]]; then
+  say ""
+  say "Verifying package checksums"
+  ( cd "$HERE" && sha256sum -c --quiet checksums.sha256 ) \
+    || die "checksums do not match - the bundle is incomplete or was modified; re-copy it"
+  ok "$(wc -l < "$HERE/checksums.sha256") files verified"
 fi
 
 # ------------------------------------------------------------------ debs
-mapfile -t debs < <(ls -1 "$HERE"/debs/*.deb 2>/dev/null || true)
-[[ ${#debs[@]} -gt 0 ]] || die "no .deb files in $HERE/debs - the bundle is not
+mapfile -t debs < <(ls -1 "$DEBDIR"/*.deb 2>/dev/null || true)
+[[ ${#debs[@]} -gt 0 ]] || die "no .deb files in $DEBDIR - the bundle is not
        in git; build it first with ./refresh-bundle.sh (needs internet)"
 
 say ""
