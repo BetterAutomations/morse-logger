@@ -48,6 +48,10 @@ Dongle: ____________  Serial: ______  Antenna: ______  Date: ___________
 | B18 | PipeWire restart | `systemctl --user restart pipewire` | within ~30 s the cable and the saved source loops are back and a `#` repair line appears; the browser may still need a full restart (C2) |
 | B19 | saved loops after reboot | reboot with `source_loops` set | `pactl list modules` shows the same source→cable pairs again |
 | B20 | --stop-source | `route-audio --source <alsa_input...>`, then `--stop-source` | the line-in loop is removed (bba188b); the default-sink tap is not touched |
+| B21 | stop releases the audio | `route-audio --all` with a browser playing, then `morse-logger stop` | `moved 1 stream(s) back to the default sink`; the stream appears on the default sink in `pactl list sink-inputs` and you hear it again; the cable is still there |
+| B22 | stop with nothing playing | `morse-logger stop` on a quiet desktop | no move message, exit 0, cable still present |
+| B23 | repair age | force a repair (B18), wait, `morse-logger status` | `repair  ... (NmNNs ago)` grows while the repair text stays; `status --json` carries `last_repair_ago` |
+| B24 | start ignores the old status | stop, then `morse-logger start --dial 7.03` with a 20-hour-old `run/status.json` present | no instant "running" on the old file; the line appears only once the new daemon writes its own status (and a start that dies says "exited during startup", not "running") |
 
 ## C. Browser behaviour
 

@@ -154,3 +154,58 @@ commit that closed it, so the reasoning stays findable.
   chooser stays in `config`. Tests: tests/test_feed.py (22 cases, no pactl
   needed). Documented in README's command table and a new "What is feeding the
   decoder" section; tools/audit_verbs.py is clean (21 verbs).
+
+- From the js8call-logger session of 2026-11-28: `start` trusted the previous
+  daemon's status.json, so a healthy twenty-hour-old file was reported as this
+  run's success - a start that died five seconds later had already been called
+  "running".
+  DONE 4cd5ba8. cli.status_stamp() notes status.json's st_mtime_ns before
+  Popen, and cli.fresh_status() returns the file only when it has been rewritten
+  since and its pid is the one we spawned. Simulated on an isolated home with a
+  fake Popen: with the previous reader the stale file printed "morse-logger
+  running" and returned 0; with fresh_status it waits (no claim), and a
+  status.json rewritten by our own pid is still accepted, so the real path is
+  not a false negative. Tests: test_cli.py FreshStatusTest (unchanged file,
+  rewritten by another pid, rewritten by ours, no file).
+
+- From the same session: `stop` killed the daemons but left streams playing into
+  the cable, where PipeWire keeps them - silent, unmuted, full volume, on no
+  output device. Cost a real user their desktop audio in the sibling program.
+  DONE 4cd5ba8. pulse.stranded_streams() lists sink-inputs on our sink that are
+  not our own loopback (module id from run/pulse-modules.json), and
+  pulse.move_stream() moves one to @DEFAULT_SINK@. cli.release_cable() runs at
+  the end of `stop` (both the running and the not-running path), reports the
+  count, and prints `pactl move-sink-input <idx> @DEFAULT_SINK@` for anything
+  the server refuses. The cable is deliberately kept so `start` reuses it.
+  Verified live here: a pw-play stream on a real cable was moved to the
+  headphones sink (`moved 1 stream(s) back to the default sink`), the monitor
+  loopback was not touched, and `cable down` afterwards was clean.
+  Tests: test_cli.py ReleaseCableTest (nothing stranded, moved, refused,
+  no server, stop calls it).
+
+- From the same session: `status` showed `repair <text>` with no age, so a cable
+  re-create from six hours ago read like a current event.
+  DONE 4cd5ba8. write_status() publishes `last_repair_ago` from
+  `_last_repair_at` (now initialised to 0.0 so the field cannot raise), and
+  status prints `repair  <text> (6h00m ago)` with fmt_uptime. A status.json from
+  an older daemon has no such key and prints the text alone rather than a
+  bogus age. Tests: test_daemon.py StatusRepairAgeTest, test_cli.py
+  StatusRepairLineTest (with and without the field).
+
+- From the same session: "routine startup work is not announced as a repair".
+  NOT APPLICABLE - the property already holds here. daemon.start_engine() only
+  calls repair() for the re-created cable when `self.restarts` is set, and
+  `_restore_source_loops()` returns 0 on a clean first start (nothing saved), so
+  a first start says nothing. Kept as is; no code change.
+
+- From the same session, optional: install.sh refusing a second install that
+  would shadow the first on PATH.
+  DECLINED. The suggested check resolves `command -v morse-logger` with
+  readlink, but this installer never symlinks: it writes a generated wrapper at
+  BINDIR=/usr/local/bin/morse-logger (install.sh:282-289) that exports
+  PYTHONPATH=$PREFIX. readlink -f therefore lands in /usr/local/bin, never
+  under /opt/morse-logger, so the test would refuse even a re-install of the
+  same copy. A correct guard would compare the PYTHONPATH embedded in that
+  wrapper against $PREFIX and refuse (or take --force) when they differ; not
+  done because a second install needs an explicit MORSE_LOGGER_PREFIX and this
+  installer is the reference implementation, not the one that got it wrong.

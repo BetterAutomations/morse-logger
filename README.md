@@ -229,6 +229,13 @@ A moved stream is looped back to your speakers by default, so you still hear it.
 `route-audio` never moves morse-logger's own monitor loopback: that would feed the
 cable into itself and pin the input at 0 dBFS.
 
+Routing is not sticky, and neither is stopping: PipeWire remembers the
+destination, so anything still playing into the cable when the logger stops would
+go silent at full volume with no output device doing anything. `morse-logger stop`
+moves those streams back to the default sink and says how many; if a move is
+refused it prints the `pactl move-sink-input <idx> @DEFAULT_SINK@` line to type.
+The cable itself is left in place, so the next `start` reuses it.
+
 `--dial` is only a label: it never retunes anything. It is written with each
 logged line so the log says what you were listening to. Because you will retune
 mid-session, the value can be changed live without restarting:
@@ -374,9 +381,11 @@ instead of flooding the log.
 **Repairs are visible.** A watchdog restart, a re-created cable or a
 speed-driven decoder restart appends a marked line to the same daily text log
 (`2026-11-23 11:24:02  # watchdog: decoder moved to 840 Hz (retune #1)`), keeps
-it in `status` as `repair`, and sends a desktop notification when `notify-send`
-is available. The `#` can never match the traffic format, so it cannot be
-mistaken for decoded copy; repeats within ten minutes are not re-sent. The
+it in `status` as `repair` with its age
+(`repair  cable was missing - re-created it (6h00m ago)`), and sends a desktop
+notification when `notify-send` is available. The `#` can never match the
+traffic format, so it cannot be mistaken for decoded copy; repeats within ten
+minutes are not re-sent. The
 30-second cable check can be turned off with
 `morse-logger config --set cable_watch=false` if the cable was removed on
 purpose.
