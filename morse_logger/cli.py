@@ -44,6 +44,29 @@ def status_json(home):
         return None
 
 
+def status_stamp(home):
+    """mtime of status.json in ns, or None - the "was it rewritten?" probe."""
+    try:
+        return os.stat(os.path.join(home, "run", "status.json")).st_mtime_ns
+    except OSError:
+        return None
+
+
+def fresh_status(home, stamp, pid):
+    """status.json written by THIS run, or None while it is the old daemon's.
+
+    Without this a start that dies five seconds later is reported as running on
+    the strength of the previous daemon's file, which said exactly that. The
+    mtime alone is not enough either: the pid in it has to be ours.
+    """
+    if status_stamp(home) in (None, stamp):
+        return None
+    st = status_json(home)
+    if not st or st.get("pid") != pid:
+        return None
+    return st
+
+
 def fmt_uptime(s):
     s = int(s)
     h, m = divmod(s // 60, 60)
@@ -802,6 +825,9 @@ def cmd_start(args):
     env = dict(os.environ)
     env["PYTHONPATH"] = PKG_PARENT + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     env["PYTHONUNBUFFERED"] = "1"
+    # whatever status.json says now belongs to the previous run: note how old it
+    # is and ignore it until this daemon rewrites it
+    stamp = status_stamp(home)
     p = subprocess.Popen([sys.executable, "-m", "morse_logger.cli", "run"],
                          stdout=logf, stderr=logf, stdin=subprocess.DEVNULL,
                          start_new_session=True, env=env)
@@ -819,7 +845,7 @@ def cmd_start(args):
             except OSError:
                 pass
             return 1
-        st = status_json(home)
+        st = fresh_status(home, stamp, p.pid)
         phase = (st or {}).get("phase")
         if phase and phase != last_phase:
             print(f"  ... {phase} ({int(time.time() - t0)}s)")
@@ -884,6 +910,34 @@ def cmd_restart(args):
     return cmd_start(args)
 
 
+def release_cable(cfg):
+    """Move audio that is still going into the cable back to the default sink.
+
+    Stopping used to leave it there: the stream stayed open and unmuted, aimed
+    at a null sink nothing reads any more, so the desktop went silent with the
+    player showing full volume and no output device doing anything. The cable
+    itself stays - `start` reuses it, and its config is unchanged.
+    """
+    home = cfg["_home"]
+    try:
+        rows = pulse.stranded_streams(
+            pulse.SINK, os.path.join(home, "run", "pulse-modules.json"))
+    except Exception:                            # no sound server: nothing to do
+        return 0
+    if not rows:
+        return 0
+    lost = [r for r in rows if not pulse.move_stream(r["index"])]
+    moved = len(rows) - len(lost)
+    if moved:
+        print(f"moved {moved} stream(s) back to the default sink "
+              f"(they were playing into {pulse.SINK})")
+    if lost:
+        print(f"{len(lost)} stream(s) are still on {pulse.SINK} - move them back with:")
+        for row in lost:
+            print(f"  pactl move-sink-input {row['index']} @DEFAULT_SINK@")
+    return moved
+
+
 def cmd_stop(args):
     cfg = logger.load_config()
     home = cfg["_home"]
@@ -893,6 +947,7 @@ def cmd_stop(args):
     if not pids:
         print("morse-logger is not running")
         fldigi.stop_stale(home)
+        release_cable(cfg)
         return 0
     for pid in pids:
         try:
@@ -917,6 +972,7 @@ def cmd_stop(args):
     except OSError:
         pass
     print("morse-logger stopped")
+    release_cable(cfg)
     return 0
 
 
@@ -981,7 +1037,9 @@ def cmd_status(args):
     if st.get("watchdog_retunes"):
         print(f"  watchdog  {st['watchdog_retunes']} automatic retune(s) this session")
     if st.get("last_repair"):
-        print(f"  repair    {st['last_repair']}")
+        ago = st.get("last_repair_ago")
+        when = f" ({fmt_uptime(ago)} ago)" if isinstance(ago, int) else ""
+        print(f"  repair    {st['last_repair']}{when}")
     print(f"  logged    {st.get('lines')} lines  (restarts {st.get('restarts')})")
     if st.get("last_line"):
         nums = []

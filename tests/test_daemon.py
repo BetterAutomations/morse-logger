@@ -7,6 +7,7 @@ what it does, and they are where a wrong guess costs a whole session.
 import os
 import sys
 import tempfile
+import time
 import unittest
 import contextlib
 import io
@@ -46,6 +47,23 @@ class RunnerCase(unittest.TestCase):
     def status(self, extra=None):
         with mock.patch.object(daemon.pulse, "cable_status", return_value={}):
             return self.runner.write_status(extra)
+
+
+class StatusRepairAgeTest(RunnerCase):
+    """A repair from six hours ago must not read like a current one."""
+
+    def test_no_repair_means_no_age(self):
+        st = self.status()
+        self.assertIsNone(st["last_repair"])
+        self.assertIsNone(st["last_repair_ago"])
+
+    def test_the_age_is_published_with_the_text(self):
+        self.runner.last_repair = "cable was missing - re-created it"
+        self.runner._last_repair_at = time.time() - 600
+        st = self.status()
+        self.assertEqual(st["last_repair"], "cable was missing - re-created it")
+        self.assertGreaterEqual(st["last_repair_ago"], 599)
+        self.assertLess(st["last_repair_ago"], 700)
 
 
 class AdoptWpmTest(RunnerCase):

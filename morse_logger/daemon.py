@@ -84,6 +84,7 @@ class Runner:
         self.speed_restarts = 0
         self.repairs = 0
         self.last_repair = None
+        self._last_repair_at = 0.0
         # routing-tug-of-war memory: another logger watching the same app puts
         # the stream back a second after we move it, so stop competing
         self._moves = {}
@@ -141,6 +142,8 @@ class Runner:
             "speed_restarts": getattr(self, "speed_restarts", 0),
             "repairs": getattr(self, "repairs", 0),
             "last_repair": getattr(self, "last_repair", None),
+            "last_repair_ago": (int(time.time() - self._last_repair_at)
+                                if getattr(self, "last_repair", None) else None),
             "phase": getattr(self, "phase", "logging"),
             "wpm": self.cfg.get("wpm"),
             "wpm_measured": self.measured[0] if self.measured else None,

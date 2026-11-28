@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import io
+import json
 import os
 import queue
 import sys
@@ -15,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from morse_logger import cli  # noqa: E402
+from morse_logger import logger  # noqa: E402
 
 
 class UptimeTest(unittest.TestCase):
@@ -404,6 +406,94 @@ def level_args(**kw):
     return argparse.Namespace(**base)
 
 
+class FreshStatusTest(unittest.TestCase):
+    """A start must not trust the previous daemon's status.json."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = self.tmp.name
+        os.makedirs(os.path.join(self.home, "run"), exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, pid, stamp_ns=None):
+        path = os.path.join(self.home, "run", "status.json")
+        with open(path, "w") as f:
+            json.dump({"pid": pid, "phase": "logging",
+                       "fldigi": {"running": True}}, f)
+        if stamp_ns is not None:
+            os.utime(path, ns=(stamp_ns, stamp_ns))
+
+    def test_an_unchanged_file_is_ignored_even_when_it_looks_healthy(self):
+        self.write(111, 1_000_000_000)
+        self.assertIsNone(cli.fresh_status(self.home, 1_000_000_000, 111))
+
+    def test_a_rewritten_file_from_another_pid_is_ignored(self):
+        self.assertIsNone(cli.fresh_status(self.home, None, 222))   # nothing yet
+        self.write(111, 2_000_000_000)
+        self.assertIsNone(cli.fresh_status(self.home, None, 222))
+
+    def test_a_file_this_run_wrote_is_accepted(self):
+        self.write(222, 3_000_000_000)
+        st = cli.fresh_status(self.home, 2_000_000_000, 222)
+        self.assertIsNotNone(st)
+        assert st is not None
+        self.assertEqual(st["pid"], 222)
+        self.assertTrue(st["fldigi"]["running"])
+
+    def test_no_status_file_at_all(self):
+        self.assertIsNone(cli.fresh_status(self.home, None, 222))
+
+
+class ReleaseCableTest(unittest.TestCase):
+    """Stopping must not leave the desktop's audio in a null sink."""
+
+    def setUp(self):
+        self.cfg = {"_home": tempfile.gettempdir()}
+
+    def rows(self):
+        return [{"index": 7, "app": "Google Chrome", "stream": "NA5B WebSDR",
+                 "sink_name": cli.pulse.SINK, "module": None}]
+
+    def test_nothing_stranded_says_nothing(self):
+        with mock.patch.object(cli.pulse, "stranded_streams", return_value=[]), \
+                mock.patch.object(cli.pulse, "move_stream") as move, \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(cli.release_cable(self.cfg), 0)
+        move.assert_not_called()
+        self.assertEqual(out.getvalue(), "")
+
+    def test_stranded_audio_is_moved_back_and_said_so(self):
+        with mock.patch.object(cli.pulse, "stranded_streams", return_value=self.rows()), \
+                mock.patch.object(cli.pulse, "move_stream", return_value=True) as move, \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(cli.release_cable(self.cfg), 1)
+        move.assert_called_once_with(7)
+        self.assertIn("moved 1 stream(s) back to the default sink", out.getvalue())
+
+    def test_a_refused_move_names_the_command_to_type(self):
+        with mock.patch.object(cli.pulse, "stranded_streams", return_value=self.rows()), \
+                mock.patch.object(cli.pulse, "move_stream", return_value=False), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(cli.release_cable(self.cfg), 0)
+        self.assertIn("pactl move-sink-input 7 @DEFAULT_SINK@", out.getvalue())
+
+    def test_no_sound_server_is_not_an_error(self):
+        with mock.patch.object(cli.pulse, "stranded_streams",
+                               side_effect=OSError("no pactl")):
+            self.assertEqual(cli.release_cable(self.cfg), 0)
+
+    def test_stop_releases_the_cable_when_nothing_is_running(self):
+        with mock.patch.object(cli, "read_pid", return_value=None), \
+                mock.patch.object(cli, "daemon_pids", return_value=[]), \
+                mock.patch.object(cli.fldigi, "stop_stale"), \
+                mock.patch.object(cli, "release_cable") as release, \
+                mock.patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(cli.cmd_stop(argparse.Namespace()), 0)
+        release.assert_called_once()
+
+
 class InputCommandTest(unittest.TestCase):
     def test_prints_the_summary_then_the_detail(self):
         cfg = {"_home": "/tmp"}
@@ -420,6 +510,37 @@ class InputCommandTest(unittest.TestCase):
                 mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertEqual(cli.cmd_input(argparse.Namespace()), 2)
         self.assertIn("cannot inspect the audio setup: no pactl", out.getvalue())
+
+
+class StatusRepairLineTest(unittest.TestCase):
+    """The repair line carries its age; an old daemon's file has no age."""
+
+    def status(self, **extra):
+        cfg = dict(logger.DEFAULT_CONFIG, _home="/tmp")
+        st = {"pid": os.getpid(), "uptime_s": 120, "lines": 3, "restarts": 0,
+              "fldigi": {"running": True, "pid": 9, "tone_hz": 700,
+                         "quality": 50.0},
+              "input_device": "morse-logger_cable_src", "dial_mhz": None,
+              "cable": {"sink": True, "source": True, "monitor": False},
+              "log_dir": "/tmp/logs", "wpm": 20}
+        st.update(extra)
+        with mock.patch.object(cli.logger, "load_config", return_value=cfg), \
+                mock.patch.object(cli, "status_json", return_value=st), \
+                mock.patch.object(cli, "read_pid", return_value=os.getpid()), \
+                mock.patch.object(cli, "alive", return_value=True), \
+                mock.patch.object(cli.feed, "describe",
+                                  return_value=("nothing feeding it", [])), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            cli.cmd_status(argparse.Namespace(json=False))
+        return out.getvalue()
+
+    def test_the_age_is_printed(self):
+        text = self.status(last_repair="cable re-created", last_repair_ago=6 * 3600)
+        self.assertIn("repair    cable re-created (6h00m ago)", text)
+
+    def test_a_status_without_the_age_prints_the_text_alone(self):
+        text = self.status(last_repair="cable re-created")
+        self.assertIn("repair    cable re-created\n", text)
 
 
 class LevelCommandTest(unittest.TestCase):

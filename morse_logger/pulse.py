@@ -514,6 +514,25 @@ def is_own_loopback(row, own=()):
     return (row.get("stream") or "").startswith("loopback-")
 
 
+def stranded_streams(cable=SINK, state_file=None):
+    """Streams still playing into our cable (our own loopback excluded).
+
+    What is left behind when the logger stops: PipeWire remembers the
+    destination, so a browser keeps sending its audio into a null sink that
+    nothing listens to any more - silent, at full volume, on no output device.
+    """
+    own = our_modules(state_file)
+    return [row for row in sink_input_details()
+            if (row.get("sink_name") or "") == cable
+            and not is_own_loopback(row, own)]
+
+
+def move_stream(index, target="@DEFAULT_SINK@"):
+    """Move one sink-input; returns True on success."""
+    p = _run(["pactl", "move-sink-input", str(index), target], check=False)
+    return p.returncode == 0
+
+
 def route_sink_inputs(target=SINK, indices=None, state_file=None):
     """Move running audio streams (e.g. the browser tab) onto the cable.
 
